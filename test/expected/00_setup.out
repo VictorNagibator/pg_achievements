@@ -48,23 +48,10 @@ ORDER BY code;
 -- the extension refuses to be created in another database
 CREATE DATABASE pga_other;
 \c pga_other
+\set VERBOSITY terse
 CREATE EXTENSION pg_achievements;
 ERROR:  pg_achievements must be created in database "contrib_regression"
-HINT:  Change pg_achievements.database and restart the server to use another database.
-CONTEXT:  PL/pgSQL function inline_code_block line 7 at RAISE
-SQL statement "DO $$
-BEGIN
-    IF current_setting('pg_achievements.database', true) IS NULL THEN
-        RAISE EXCEPTION 'pg_achievements must be loaded via shared_preload_libraries';
-    END IF;
-    IF current_database() <> current_setting('pg_achievements.database') THEN
-        RAISE EXCEPTION 'pg_achievements must be created in database "%"',
-            current_setting('pg_achievements.database')
-            USING HINT = 'Change pg_achievements.database and restart the server to use another database.';
-    END IF;
-END
-$$"
-extension script file "pg_achievements--1.0.sql", near line 6
+\set VERBOSITY default
 \c contrib_regression
 SET pg_achievements.notify = off;
 DROP DATABASE pga_other;

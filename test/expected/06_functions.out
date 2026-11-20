@@ -1,0 +1,272 @@
+-- SQL API and settings.
+SELECT pga_test_role('t_fn');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+SELECT pga_test_role('t_other');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+GRANT CREATE ON SCHEMA public TO t_fn;
+SET ROLE t_fn;
+SELECT 1 AS first;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 10.
+ first 
+-------
+     1
+(1 row)
+
+SELECT achievements.counter('stmt_select');
+ counter 
+---------
+       1
+(1 row)
+
+SELECT achievements.counter('no_such_counter');
+ERROR:  unknown achievement counter "no_such_counter"
+-- opt-out: nothing is counted
+SET pg_achievements.opt_out = on;
+SELECT 1;
+ ?column? 
+----------
+        1
+(1 row)
+
+SELECT 1;
+ ?column? 
+----------
+        1
+(1 row)
+
+RESET pg_achievements.opt_out;
+SELECT achievements.counter('stmt_select');
+ counter 
+---------
+       2
+(1 row)
+
+-- nested statements are not counted unless track_nested (superuser only)
+DO $$ BEGIN EXECUTE 'CREATE TABLE fn_nested (id int)'; END $$;
+SELECT achievements.counter('create_table');
+ counter 
+---------
+       0
+(1 row)
+
+SET pg_achievements.track_nested = on;
+ERROR:  permission denied to set parameter "pg_achievements.track_nested"
+RESET ROLE;
+SET pg_achievements.track_nested = on;
+SET ROLE t_fn;
+DO $$ BEGIN EXECUTE 'DROP TABLE fn_nested'; EXECUTE 'CREATE TABLE fn_nested (id int)'; END $$;
+NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
+DETAIL:  Create your first table. Total score: 20.
+SELECT achievements.counter('create_table');
+ counter 
+---------
+       1
+(1 row)
+
+RESET ROLE;
+RESET pg_achievements.track_nested;
+SET ROLE t_fn;
+-- notify = off: the achievement is still awarded, silently
+SET pg_achievements.notify = off;
+WITH x AS (SELECT 1) SELECT * FROM x;
+ ?column? 
+----------
+        1
+(1 row)
+
+RESET pg_achievements.notify;
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+SELECT code FROM achievements.my ORDER BY code;
+    code     
+-------------
+ first_cte
+ first_table
+ hello_world
+(3 rows)
+
+-- emoji style (the database and the client use UTF8)
+SET pg_achievements.notice_style = emoji;
+SELECT id, rank() OVER (ORDER BY id) FROM (VALUES (1)) v(id);
+NOTICE:  🥈 [SILVER] Achievement unlocked: Open Window (+25)
+DETAIL:  Use a window function. Total score: 55.
+ id | rank 
+----+------
+  1 |    1
+(1 row)
+
+RESET pg_achievements.notice_style;
+-- reset: own progress yes, someone else's no
+SELECT achievements.reset('t_other');
+ERROR:  only a superuser can reset achievements of another role
+CONTEXT:  SQL statement "SELECT achievements._reset(role)"
+PL/pgSQL function achievements.reset(name) line 3 at PERFORM
+-- the SELECT calling reset() is itself the first statement after the reset,
+-- so Hello, World is earned again right away
+SELECT achievements.reset();
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 10.
+ reset 
+-------
+ 
+(1 row)
+
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+SELECT code FROM achievements.my ORDER BY code;
+    code     
+-------------
+ hello_world
+(1 row)
+
+SELECT achievements.counter('stmt_select'), achievements.counter('cte_any');
+ counter | counter 
+---------+---------
+       3 |       0
+(1 row)
+
+-- administrative functions are not for everyone
+SELECT achievements.grant('t_fn', 'yolo');
+ERROR:  permission denied for function grant
+SELECT achievements.define('x', 'X', 'X.', 'bronze', 'stmt_select', 1);
+ERROR:  permission denied for function define
+SELECT achievements.forget_role('t_fn');
+ERROR:  permission denied for function forget_role
+RESET ROLE;
+-- grant by hand (no notice: the granting session is not the receiver)
+SELECT achievements.grant('t_fn', 'yolo');
+ grant 
+-------
+ t
+(1 row)
+
+SELECT achievements.grant('t_fn', 'yolo');
+ grant 
+-------
+ f
+(1 row)
+
+SELECT achievements.grant('t_fn', 'no_such_code');
+ERROR:  unknown achievement "no_such_code"
+CONTEXT:  PL/pgSQL function achievements."grant"(name,text) line 7 at RAISE
+SET ROLE t_fn;
+SELECT code FROM achievements.my ORDER BY code;
+    code     
+-------------
+ hello_world
+ yolo
+(2 rows)
+
+RESET ROLE;
+-- define a custom achievement on an existing counter
+SELECT achievements.define('truncator', 'Truncator', 'TRUNCATE 2 tables.', 'silver', 'truncate', 2);
+ define 
+--------
+ 
+(1 row)
+
+SELECT achievements.define('bad', 'Bad', 'Bad.', 'silver', 'no_such_counter', 2);
+ERROR:  unknown counter "no_such_counter"
+HINT:  See SELECT * FROM achievements._counter_keys().
+CONTEXT:  PL/pgSQL function achievements.define(text,text,text,achievements.tier,text,bigint) line 6 at RAISE
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+SELECT code, points, builtin FROM achievements.catalog WHERE NOT builtin;
+   code    | points | builtin 
+-----------+--------+---------
+ truncator |     25 | f
+(1 row)
+
+SET ROLE t_fn;
+CREATE TABLE fn_t (id int);
+NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
+DETAIL:  Create your first table. Total score: 120.
+TRUNCATE fn_t;
+NOTICE:  [GOLD] Achievement unlocked: Clean Slate (+50)
+DETAIL:  TRUNCATE a table. Total score: 170.
+TRUNCATE fn_t;
+NOTICE:  [SILVER] Achievement unlocked: Truncator (+25)
+DETAIL:  TRUNCATE 2 tables. Total score: 195.
+RESET ROLE;
+-- custom achievements do not change the meta ones
+SELECT count(*) FROM achievements.catalog WHERE builtin;
+ count 
+-------
+    46
+(1 row)
+
+DELETE FROM achievements.catalog WHERE code = 'truncator';
+-- forget_role refuses existing roles, then cleans up a dropped one
+SELECT achievements.forget_role('t_other');
+ERROR:  role "t_other" still exists
+HINT:  Use achievements.reset() for existing roles.
+CONTEXT:  PL/pgSQL function achievements.forget_role(name) line 4 at RAISE
+SELECT pga_test_role('t_gone');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+SET ROLE t_gone;
+SELECT 1 AS soon_gone;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 10.
+ soon_gone 
+-----------
+         1
+(1 row)
+
+RESET ROLE;
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+DROP OWNED BY t_gone;
+DROP ROLE t_gone;
+SELECT count(*) FROM achievements.counters WHERE role_name = 't_gone';
+ count 
+-------
+     1
+(1 row)
+
+SELECT achievements.forget_role('t_gone');
+ forget_role 
+-------------
+ 
+(1 row)
+
+SELECT count(*) FROM achievements.counters WHERE role_name = 't_gone';
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM achievements.awarded WHERE role_name = 't_gone';
+ count 
+-------
+     0
+(1 row)
+

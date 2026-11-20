@@ -18,7 +18,9 @@ ORDER BY code;
 -- the extension refuses to be created in another database
 CREATE DATABASE pga_other;
 \c pga_other
+\set VERBOSITY terse
 CREATE EXTENSION pg_achievements;
+\set VERBOSITY default
 \c contrib_regression
 SET pg_achievements.notify = off;
 DROP DATABASE pga_other;

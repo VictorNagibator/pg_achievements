@@ -4,7 +4,10 @@ SET ROLE t_ddl;
 \set QUIET on
 
 EXPLAIN (COSTS OFF) SELECT 1;
-EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT 1;
+-- the plan output differs between versions, only the notice matters
+\o /dev/null
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT 1;
+\o
 
 CREATE TABLE d1 (id int, v int);
 CREATE TABLE IF NOT EXISTS d1 (id int);   -- exists: not counted

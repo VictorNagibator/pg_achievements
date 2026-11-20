@@ -7,6 +7,10 @@ SELECT pga_test_role('t_err');
 
 SET ROLE t_err;
 \set QUIET on
+-- Achievements caused by errors are reported while the transaction aborts,
+-- right after the ERROR; psql may print the two in either order.  Keep the
+-- output stable by checking the awards in the view instead.
+SET pg_achievements.notify = off;
 -- err_syntax
 SELEC 1;
 ERROR:  syntax error at or near "SELEC"
@@ -22,13 +26,9 @@ ERROR:  division by zero
 -- deadlock and serialization failure, raised by hand; real ones are
 -- covered by the TAP tests
 DO $$ BEGIN RAISE EXCEPTION 'fake deadlock' USING ERRCODE = 'deadlock_detected'; END $$;
-NOTICE:  [GOLD] Achievement unlocked: Mutual Understanding (+50)
-DETAIL:  Take part in a deadlock. Total score: 50.
 ERROR:  fake deadlock
 CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
 DO $$ BEGIN RAISE EXCEPTION 'fake conflict' USING ERRCODE = 'serialization_failure'; END $$;
-NOTICE:  [GOLD] Achievement unlocked: Conflict of Interest (+50)
-DETAIL:  Hit a serialization failure. Total score: 100.
 ERROR:  fake conflict
 CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
 -- an error caught inside PL/pgSQL is never reported, so it does not count
@@ -36,6 +36,7 @@ DO $$ BEGIN
     RAISE EXCEPTION 'caught' USING ERRCODE = 'deadlock_detected';
 EXCEPTION WHEN OTHERS THEN NULL;
 END $$;
+RESET pg_achievements.notify;
 \set QUIET off
 SELECT * FROM pga_counters();
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
@@ -47,6 +48,20 @@ DETAIL:  Run your first SELECT. Total score: 110.
  select_star           |     1
  serialization_failure |     1
 (4 rows)
+
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+SELECT code FROM achievements.my ORDER BY code;
+         code         
+----------------------
+ hello_world
+ mutual_understanding
+ serial_conflict
+(3 rows)
 
 RESET ROLE;
 RESET

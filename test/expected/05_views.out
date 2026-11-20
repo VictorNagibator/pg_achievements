@@ -1,0 +1,99 @@
+-- Views and privileges.
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+-- an unprivileged role sees its own data through the views only
+SELECT pga_test_role('t_view');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+SET ROLE t_view;
+SELECT * FROM achievements.counters;
+ERROR:  permission denied for table counters
+SELECT * FROM achievements.awarded;
+ERROR:  permission denied for table awarded
+UPDATE achievements.catalog SET points = 1000;
+NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE (+50)
+DETAIL:  UPDATE without a WHERE clause. Total score: 50.
+ERROR:  permission denied for table catalog
+SELECT count(*) FROM achievements.my;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 60.
+ count 
+-------
+     0
+(1 row)
+
+RESET ROLE;
+-- my: t_ddl holds a secret achievement (yolo)
+SET ROLE t_ddl;
+SELECT tier, title, points, code FROM achievements.my ORDER BY tier, code;
+   tier   |        title        | points |        code        
+----------+---------------------+--------+--------------------
+ bronze   | Investigator        |     10 | first_explain
+ bronze   | Functionary         |     10 | first_function
+ bronze   | Indexer             |     10 | first_index
+ bronze   | First Table         |     10 | first_table
+ bronze   | Hello, World        |     10 | hello_world
+ silver   | Detective           |     25 | detective
+ silver   | Divide and Conquer  |     25 | divide_and_conquer
+ silver   | No Locks            |     25 | no_locks
+ silver   | Trigger Happy       |     25 | trigger_happy
+ gold     | Clean Slate         |     50 | clean_slate
+ gold     | Friday Deploy       |     50 | friday_deploy
+ gold     | Master of the Table |     50 | table_owner
+ platinum | You Only Live Once  |    100 | yolo
+(13 rows)
+
+-- progress: secret descriptions are hidden until unlocked
+SELECT code, description, threshold, current, unlocked
+FROM achievements.progress
+WHERE code IN ('yolo', 'time_machine', 'first_table', 'table_collector', 'gold_rush')
+ORDER BY code;
+      code       |           description           | threshold | current | unlocked 
+-----------------+---------------------------------+-----------+---------+----------
+ first_table     | Create your first table.        |         1 |       7 | t
+ gold_rush       | Collect every gold achievement. |           |         | f
+ table_collector | Create 100 tables.              |       100 |       7 | f
+ time_machine    | ???                             |         1 |       0 | f
+ yolo            | Drop a database.                |         1 |       1 | t
+(5 rows)
+
+RESET ROLE;
+-- catalog_public hides every secret description
+SELECT code, title, description, tier, points
+FROM achievements.catalog_public WHERE secret ORDER BY code;
+     code      |       title        | description |   tier   | points 
+---------------+--------------------+-------------+----------+--------
+ marathon      | Marathon           | ???         | platinum |    100
+ serial_killer | Serial Executioner | ???         | platinum |    100
+ time_machine  | Time Machine       | ???         | platinum |    100
+ yolo          | You Only Live Once | ???         | platinum |    100
+(4 rows)
+
+-- leaderboard, then opt-out of t_err
+SELECT role_name, score, achievements, bronze, silver, gold, platinum
+FROM achievements.leaderboard WHERE role_name LIKE 't\_%' ORDER BY role_name;
+ role_name | score | achievements | bronze | silver | gold | platinum 
+-----------+-------+--------------+--------+--------+------+----------
+ t_analyze |   275 |           11 |      5 |      3 |    3 |        0
+ t_ddl     |   400 |           13 |      5 |      4 |    3 |        1
+ t_err     |   110 |            3 |      1 |      0 |    2 |        0
+ t_exec    |   285 |            5 |      1 |      1 |    1 |        2
+(4 rows)
+
+ALTER ROLE t_err SET pg_achievements.opt_out = on;
+SELECT role_name FROM achievements.leaderboard WHERE role_name LIKE 't\_%' ORDER BY role_name;
+ role_name 
+-----------
+ t_analyze
+ t_ddl
+ t_exec
+(3 rows)
+
+ALTER ROLE t_err RESET pg_achievements.opt_out;
