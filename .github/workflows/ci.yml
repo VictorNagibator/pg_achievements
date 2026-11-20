@@ -1,0 +1,46 @@
+# Build and test pg_achievements against every supported PostgreSQL major
+# version, using the packages of apt.postgresql.org.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [16, 17, 18]
+    name: PostgreSQL ${{ matrix.pg }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL ${{ matrix.pg }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y \
+            postgresql-${{ matrix.pg }} postgresql-server-dev-${{ matrix.pg }} \
+            libipc-run-perl
+          # the packaged server must not hold the test ports
+          sudo systemctl stop postgresql || true
+
+      - name: Build
+        run: |
+          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg }}/bin/pg_config
+          make PGA_TESTING=1
+          sudo make PGA_TESTING=1 install
+
+      - name: Test
+        run: |
+          export PATH=/usr/lib/postgresql/${{ matrix.pg }}/bin:$PATH
+          make PG_CONFIG=pg_config PGA_TESTING=1 installcheck
+
+      - name: Show failures
+        if: failure()
+        run: |
+          cat test/regression.diffs || true
+          tail -n 100 tmp_check/log/* || true
