@@ -281,3 +281,61 @@ ORDER BY c.tier, c.code;
 GRANT USAGE ON SCHEMA achievements TO PUBLIC;
 GRANT SELECT ON achievements.my, achievements.progress,
                 achievements.leaderboard, achievements.catalog_public TO PUBLIC;
+
+------------------------------------------------------------------------------
+-- Builtin catalog: 46 achievements
+------------------------------------------------------------------------------
+
+INSERT INTO achievements.catalog
+    (code, title, description, tier, points, secret, counter_key, threshold)
+VALUES
+-- bronze: first steps
+('hello_world',         'Hello, World',               'Run your first SELECT.',                                 'bronze',   10, false, 'stmt_select',        1),
+('welcome',             'Welcome',                    'Connect to the server for the first time.',              'bronze',   10, false, 'connect',            1),
+('first_table',         'First Table',                'Create your first table.',                               'bronze',   10, false, 'create_table',       1),
+('first_index',         'Indexer',                    'Create your first index.',                               'bronze',   10, false, 'create_index',       1),
+('first_function',      'Functionary',                'Create your first function or procedure.',               'bronze',   10, false, 'create_function',    1),
+('first_cte',           'WITH Love',                  'Run a query with a common table expression.',            'bronze',   10, false, 'cte_any',            1),
+('first_join',          'All Connected',              'Run a query with an explicit JOIN.',                     'bronze',   10, false, 'join_count_max',     1),
+('first_explain',       'Investigator',               'Ask the planner with EXPLAIN.',                          'bronze',   10, false, 'explain_any',        1),
+('typo_apprentice',     'Learning from Typos',        'Make 10 syntax errors.',                                 'bronze',   10, false, 'err_syntax',        10),
+('star_gazer',          'Stargazer',                  'Run 100 queries with SELECT *.',                         'bronze',   10, false, 'select_star',      100),
+('night_owl',           'Night Owl',                  'Run a query between 03:00 and 05:00.',                   'bronze',   10, false, 'night_query',        1),
+('null_not_equal',      'NULL Is Not Equal to NULL',  'Compare with = NULL instead of IS NULL.',                'bronze',   10, false, 'null_eq',            1),
+-- silver: mastering features
+('detective',           'Detective',                  'Run EXPLAIN ANALYZE.',                                   'silver',   25, false, 'explain_analyze',    1),
+('recursion',           'Recursion: See Recursion',   'Run a WITH RECURSIVE query.',                            'silver',   25, false, 'cte_recursive',      1),
+('open_window',         'Open Window',                'Use a window function.',                                 'silver',   25, false, 'window_func',        1),
+('lateral_thinking',    'Lateral Thinking',           'Use LATERAL.',                                           'silver',   25, false, 'lateral',            1),
+('jsonb_juggler',       'JSONB Juggler',              'Use the JSONB operators ->, ->>, @> or ? 10 times.',     'silver',   25, false, 'jsonb_ops',         10),
+('patient',             'Patient',                    'Wait for a query that runs longer than a minute.',       'silver',   25, false, 'query_over_60s',     1),
+('no_locks',            'No Locks',                   'Create an index CONCURRENTLY.',                          'silver',   25, false, 'create_index_concurrently', 1),
+('trigger_happy',       'Trigger Happy',              'Create a trigger.',                                      'silver',   25, false, 'create_trigger',     1),
+('divide_and_conquer',  'Divide and Conquer',         'Create a partitioned table or a partition.',             'silver',   25, false, 'partition_create',   1),
+('extender',            'Expanding Horizons',         'Create 3 extensions.',                                   'silver',   25, false, 'create_extension',   3),
+('thousand_and_one',    'A Thousand and One Queries', 'Run 1001 SELECT statements.',                            'silver',   25, false, 'stmt_select',     1001),
+('night_regular',       'Night Shift',                'Run 20 queries between 03:00 and 05:00.',                'silver',   25, false, 'night_query',       20),
+('star_veteran',        'Star Veteran',               'Run 1000 queries with SELECT *.',                        'silver',   25, false, 'select_star',     1000),
+('bronze_collector',    'Collector',                  'Collect every bronze achievement.',                      'silver',   25, false, 'meta:tier:bronze',   1),
+-- gold: risky and rare events
+('forgot_where',        'Forgot WHERE',               'UPDATE without a WHERE clause.',                         'gold',     50, false, 'update_no_where',    1),
+('forgot_where_again',  'Forgot WHERE, Part 2',       'DELETE without a WHERE clause.',                         'gold',     50, false, 'delete_no_where',    1),
+('mutual_understanding','Mutual Understanding',       'Take part in a deadlock.',                               'gold',     50, false, 'deadlock',           1),
+('friday_deploy',       'Friday Deploy',              'Run DDL on a Friday after 18:00.',                       'gold',     50, false, 'ddl_friday_evening', 1),
+('index_for_the_weak',  'Indexes Are for the Weak',   'Scan a table of a million rows sequentially.',           'gold',     50, false, 'seqscan_big',        1),
+('executioner',         'Executioner',                'Call pg_terminate_backend.',                             'gold',     50, false, 'terminate_backend',  1),
+('clean_slate',         'Clean Slate',                'TRUNCATE a table.',                                      'gold',     50, false, 'truncate',           1),
+('table_owner',         'Master of the Table',        'Run VACUUM FULL.',                                       'gold',     50, false, 'vacuum_full',        1),
+('serial_conflict',     'Conflict of Interest',       'Hit a serialization failure.',                           'gold',     50, false, 'serialization_failure', 1),
+('many_joins',          'JOINs Without Borders',      'Run a query with 8 JOINs.',                              'gold',     50, false, 'join_count_max',     8),
+('table_collector',     'Table Collector',            'Create 100 tables.',                                     'gold',     50, false, 'create_table',     100),
+('deadlock_veteran',    'Deadlock Veteran',           'Take part in 5 deadlocks.',                              'gold',     50, false, 'deadlock',           5),
+-- platinum: the stuff of legends
+('yolo',                'You Only Live Once',         'Drop a database.',                                       'platinum',100, true,  'drop_database',      1),
+('time_machine',        'Time Machine',               'Roll back a transaction that ran for over an hour.',     'platinum',100, true,  'rollback_long_xact', 1),
+('ten_joins',           'Ten JOINs',                  'Run a query with 10 JOINs.',                             'platinum',100, false, 'join_count_max',    10),
+('scorched_earth',      'Scorched Earth',             'Drop 50 tables.',                                        'platinum',100, false, 'drop_table',        50),
+('marathon',            'Marathon',                   'Wait for a query that runs longer than an hour.',        'platinum',100, true,  'query_over_1h',      1),
+('serial_killer',       'Serial Executioner',         'Call pg_terminate_backend 10 times.',                    'platinum',100, true,  'terminate_backend', 10),
+('gold_rush',           'Gold Rush',                  'Collect every gold achievement.',                        'platinum',100, false, 'meta:tier:gold',     1),
+('platinum_collection', 'Platinum Collection',        'Collect every other achievement.',                       'platinum',100, false, 'meta:all',           1);
