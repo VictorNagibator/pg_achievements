@@ -1,7 +1,6 @@
 *.o
 *.so
 *.bc
-*.bc
 /results/
 /regression.diffs
 /regression.out
