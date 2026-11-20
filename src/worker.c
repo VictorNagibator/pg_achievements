@@ -1,8 +1,12 @@
 /*-------------------------------------------------------------------------
  *
  * worker.c
- *		Background worker: loads progress into shared memory and writes
- *		counters and awards to the tables of the extension.
+ *		Launcher and flush worker: load progress into shared memory and
+ *		write counters and awards to the tables of the extension.
+ *
+ * Two processes are involved.  The launcher is registered at server start
+ * and has no database connection; it starts the flush worker once
+ * pg_achievements.database exists and restarts it after a failure.
  *
  * Every flush_interval_ms (or on request from achievements.sync()) the
  * worker runs one cycle in its own transaction:
@@ -17,14 +21,14 @@
  */
 #include "pg_achievements.h"
 
-#include "access/xact.h"
-#include "access/xlog.h"
-#include "catalog/pg_type.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/table.h"
 #include "access/tableam.h"
+#include "access/xact.h"
+#include "access/xlog.h"
 #include "catalog/pg_database.h"
+#include "catalog/pg_type.h"
 #include "executor/spi.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -42,9 +46,10 @@
 #include "utils/timestamp.h"
 #include "utils/wait_event.h"
 
+/* set by the SIGTERM handler: finish the current cycle, flush once, exit */
 static volatile sig_atomic_t got_sigterm = false;
 
-/* worker-local: catalog slots seen in the last load, for change detection */
+/* the "catalog is full" warning is printed once per worker lifetime */
 static bool catalog_full_warned = false;
 
 /*
@@ -61,8 +66,10 @@ static int	nresets_done = 0;
  */
 static bool need_rewrite = false;
 
+/* memory of one cycle; survives the transaction so PG_CATCH can use it */
 static MemoryContext cycle_cxt = NULL;
 
+/* SIGTERM of both processes: no die(), the loops exit on their own terms */
 static void
 pga_worker_sigterm(SIGNAL_ARGS)
 {
@@ -127,6 +134,11 @@ pga_database_exists(void)
 	return exists;
 }
 
+/*
+ * Start the flush worker.  It is a dynamic worker that never restarts by
+ * itself: the launcher is notified when it exits (bgw_notify_pid) and
+ * decides when to start it again.
+ */
 static BackgroundWorkerHandle *
 pga_start_flush_worker(void)
 {
@@ -153,6 +165,11 @@ pga_start_flush_worker(void)
 	return handle;
 }
 
+/*
+ * Main loop of the launcher.  Once a second (or when a backend wakes it up)
+ * it checks the flush worker and starts it if needed, keeping at least
+ * PGA_WORKER_RESTART_S seconds between an exit and the next start.
+ */
 void
 pga_launcher_main(Datum main_arg)
 {
@@ -220,6 +237,10 @@ pga_launcher_main(Datum main_arg)
 	proc_exit(0);
 }
 
+/*
+ * Ask for a cycle right now (achievements.sync).  When the flush worker is
+ * not running, wake the launcher instead so that it starts it sooner.
+ */
 void
 pga_wake_worker(void)
 {
@@ -236,6 +257,8 @@ pga_wake_worker(void)
 
 /* ---------- SPI helpers ---------- */
 
+/* Run a statement and insist on the expected SPI result code. */
+
 static void
 pga_exec(const char *sql, int nargs, Oid *types, Datum *values, int expected)
 {
@@ -245,6 +268,7 @@ pga_exec(const char *sql, int nargs, Oid *types, Datum *values, int expected)
 		elog(ERROR, "pg_achievements: SPI_execute_with_args failed: %d", ret);
 }
 
+/* Column accessors of the current SPI result, by 1-based column number. */
 static char *
 pga_getstr(HeapTuple tup, TupleDesc desc, int col)
 {
@@ -399,6 +423,7 @@ pga_load_catalog(void)
 	}
 }
 
+/* Slot holding a code in the shared catalog, or -1.  Worker only. */
 static int
 pga_slot_by_code(const char *code)
 {
@@ -412,6 +437,13 @@ pga_slot_by_code(const char *code)
 
 /* ---------- loading progress ---------- */
 
+/*
+ * Load counters and awards from the tables into shared memory, on the first
+ * cycle after start or after CREATE EXTENSION.  Values are merged with what
+ * backends counted before the load: sums are added, maxima combined, and
+ * the loaded values become the "persisted" baseline, so the next write
+ * stores exactly the events counted meanwhile.
+ */
 static void
 pga_load_progress(void)
 {
@@ -469,6 +501,7 @@ pga_load_progress(void)
 
 /* ---------- writing ---------- */
 
+/* Store one award; use_ts = false stores "now" (overflowed queue). */
 static void
 pga_write_award(PgaRoleEntry *entry, int slot, TimestampTz ts, bool use_ts)
 {
@@ -486,6 +519,12 @@ pga_write_award(PgaRoleEntry *entry, int slot, TimestampTz ts, bool use_ts)
 			 3, types, values, SPI_OK_INSERT);
 }
 
+/*
+ * Write everything that changed since the last cycle, in three steps:
+ * resets requested by achievements.reset(), queued awards with their exact
+ * time, then awards missing from the queue and changed counter values.
+ * Rows with value 0 are deleted rather than stored.
+ */
 static void
 pga_write_progress(void)
 {
@@ -598,6 +637,10 @@ pga_write_progress(void)
 	}
 }
 
+/*
+ * One cycle in one transaction.  Errors propagate to pga_worker_main, which
+ * aborts the transaction and sets need_rewrite.
+ */
 static void
 pga_cycle(void)
 {
@@ -666,6 +709,7 @@ pga_cycle(void)
 	pgstat_report_activity(STATE_IDLE, NULL);
 }
 
+/* Do not leave a stale latch pointer behind for backends to set. */
 static void
 pga_worker_exit(int code, Datum arg)
 {
@@ -673,6 +717,12 @@ pga_worker_exit(int code, Datum arg)
 	pga_shared->worker_pid = 0;
 }
 
+/*
+ * Main loop of the flush worker.  A failed cycle is reported and retried
+ * after at least a second; the worker itself keeps running.  After SIGTERM
+ * one last cycle runs so that a clean shutdown loses nothing that backends
+ * have already flushed to shared memory.
+ */
 void
 pga_worker_main(Datum main_arg)
 {
@@ -745,8 +795,6 @@ pga_worker_main(Datum main_arg)
 		ResetLatch(MyLatch);
 		/* absorbs ProcSignalBarriers, e.g. from DROP DATABASE */
 		CHECK_FOR_INTERRUPTS();
-
-		/* one last flush after SIGTERM */
 	}
 
 	proc_exit(1);

@@ -39,6 +39,7 @@ pga_total_score(PgaRoleEntry *entry)
 	return score;
 }
 
+/* Send the "Achievement unlocked" notice for a slot to the client. */
 void
 pga_send_notice(PgaRoleEntry *entry, int s)
 {

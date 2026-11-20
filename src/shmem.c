@@ -28,6 +28,7 @@ HTAB	   *pga_roles = NULL;
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 
+/* Shared memory needed: the fixed struct plus the role hash table. */
 static Size
 pga_shmem_size(void)
 {
@@ -38,6 +39,7 @@ pga_shmem_size(void)
 	return size;
 }
 
+/* shmem_request_hook: reserve memory and one named LWLock. */
 static void
 pga_shmem_request(void)
 {
@@ -48,6 +50,7 @@ pga_shmem_request(void)
 	RequestNamedLWLockTranche(PGA_EXTNAME, 1);
 }
 
+/* shmem_startup_hook: create or attach the shared structures. */
 static void
 pga_shmem_startup(void)
 {
@@ -86,6 +89,7 @@ pga_shmem_startup(void)
 	LWLockRelease(AddinShmemInitLock);
 }
 
+/* Install the shared memory hooks; called from _PG_init. */
 void
 pga_shmem_install_hooks(void)
 {
@@ -95,6 +99,7 @@ pga_shmem_install_hooks(void)
 	shmem_startup_hook = pga_shmem_startup;
 }
 
+/* Initialize a freshly inserted role entry (atomics need explicit init). */
 static void
 pga_init_entry(PgaRoleEntry *entry)
 {
