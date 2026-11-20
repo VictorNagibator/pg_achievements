@@ -6,7 +6,10 @@
 /regression.diffs
 /regression.out
 /tmp_check/
+/tmp_regress/
 /log/
 /test/results/
+/test/regression.*
 *.dylib
 .deps/
+/test/log/

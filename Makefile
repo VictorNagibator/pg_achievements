@@ -21,12 +21,13 @@ endif
 # pg_regress starts its own instance with the extension preloaded.
 REGRESS = $(patsubst test/sql/%.sql,%,$(sort $(wildcard test/sql/*.sql)))
 REGRESS_OPTS = --inputdir=test --outputdir=test \
-	--temp-instance=tmp_check/regress \
+	--temp-instance=tmp_regress \
 	--temp-config=test/regress.conf \
-	--encoding=UTF8 --no-locale \
-	--dbname=contrib_regression
+	--encoding=UTF8 --no-locale
 TAP_TESTS = 1
 
 PG_CONFIG ?= pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+$(OBJS): src/pg_achievements.h
