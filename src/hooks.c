@@ -22,6 +22,9 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_class.h"
 #include "commands/dbcommands.h"
+#if PG_VERSION_NUM >= 190000
+#include "catalog/pg_database.h"	/* get_database_oid() moved here in 19 */
+#endif
 #include "commands/extension.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
