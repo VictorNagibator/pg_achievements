@@ -1,0 +1,209 @@
+-- Counters detected at parse analysis and committed at ExecutorEnd.
+SELECT pga_test_role('t_analyze');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+CREATE TABLE t1 (id int PRIMARY KEY, a int, j jsonb);
+NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
+DETAIL:  Create your first table. Total score: 140.
+CREATE TABLE t2 (id int PRIMARY KEY, t1_id int);
+INSERT INTO t1 SELECT g, g, jsonb_build_object('k', g) FROM generate_series(1, 10) g;
+INSERT INTO t2 SELECT g, g FROM generate_series(1, 10) g;
+GRANT ALL ON t1, t2 TO t_analyze;
+SET ROLE t_analyze;
+\set QUIET on
+-- stmt_select
+SELECT 1 AS one;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 10.
+ one 
+-----
+   1
+(1 row)
+
+-- select_star, also with a qualifier
+SELECT * FROM t1 WHERE id = 1;
+ id | a |    j     
+----+---+----------
+  1 | 1 | {"k": 1}
+(1 row)
+
+SELECT t1.* FROM t1 WHERE id = 1;
+ id | a |    j     
+----+---+----------
+  1 | 1 | {"k": 1}
+(1 row)
+
+SELECT "t1".* FROM t1 WHERE id = 1;
+ id | a |    j     
+----+---+----------
+  1 | 1 | {"k": 1}
+(1 row)
+
+-- not a star: column list, count(*), multiplication
+SELECT id, a FROM t1 WHERE id = 1;
+ id | a 
+----+---
+  1 | 1
+(1 row)
+
+SELECT count(*) FROM t1;
+ count 
+-------
+    10
+(1 row)
+
+SELECT a * 2 FROM t1 WHERE id = 1;
+ ?column? 
+----------
+        2
+(1 row)
+
+-- cte_any, cte_recursive
+WITH x AS (SELECT 1 AS v) SELECT v FROM x;
+NOTICE:  [BRONZE] Achievement unlocked: WITH Love (+10)
+DETAIL:  Run a query with a common table expression. Total score: 20.
+ v 
+---
+ 1
+(1 row)
+
+WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)
+SELECT count(*) FROM r;
+NOTICE:  [SILVER] Achievement unlocked: Recursion: See Recursion (+25)
+DETAIL:  Run a WITH RECURSIVE query. Total score: 45.
+ count 
+-------
+     3
+(1 row)
+
+-- window_func
+SELECT id, row_number() OVER (ORDER BY id) FROM t1 WHERE id < 3;
+NOTICE:  [SILVER] Achievement unlocked: Open Window (+25)
+DETAIL:  Use a window function. Total score: 70.
+ id | row_number 
+----+------------
+  1 |          1
+  2 |          2
+(2 rows)
+
+-- lateral
+SELECT t1.id, s.x FROM t1, LATERAL (SELECT t1.a + 1 AS x) s WHERE t1.id = 1;
+NOTICE:  [SILVER] Achievement unlocked: Lateral Thinking (+25)
+DETAIL:  Use LATERAL. Total score: 95.
+ id | x 
+----+---
+  1 | 2
+(1 row)
+
+-- jsonb_ops: four operators in one query, then one more
+SELECT j -> 'k', j ->> 'k', j @> '{"k": 1}', j ? 'k' FROM t1 WHERE id = 1;
+ ?column? | ?column? | ?column? | ?column? 
+----------+----------+----------+----------
+ 1        | 1        | t        | t
+(1 row)
+
+SELECT j -> 0 FROM t1 WHERE id = 1;
+ ?column? 
+----------
+ 
+(1 row)
+
+-- join_count_max keeps the maximum
+SELECT count(*) FROM t1 JOIN t2 ON t2.t1_id = t1.id;
+NOTICE:  [BRONZE] Achievement unlocked: All Connected (+10)
+DETAIL:  Run a query with an explicit JOIN. Total score: 105.
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM t1 a JOIN t2 b ON b.t1_id = a.id JOIN t1 c ON c.id = b.id;
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM t1 JOIN t2 ON t2.t1_id = t1.id;
+ count 
+-------
+    10
+(1 row)
+
+-- null_eq: counted even though the query returns nothing
+SELECT id FROM t1 WHERE a = NULL;
+NOTICE:  [BRONZE] Achievement unlocked: NULL Is Not Equal to NULL (+10)
+DETAIL:  Compare with = NULL instead of IS NULL. Total score: 115.
+ id 
+----
+(0 rows)
+
+-- update_no_where / delete_no_where: counted at analysis, even on failure
+UPDATE t1 SET a = a;
+NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE (+50)
+DETAIL:  UPDATE without a WHERE clause. Total score: 165.
+BEGIN;
+DELETE FROM t2;
+NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE, Part 2 (+50)
+DETAIL:  DELETE without a WHERE clause. Total score: 215.
+ROLLBACK;
+UPDATE t1 SET a = 1 / 0;
+ERROR:  division by zero
+-- with WHERE: nothing
+UPDATE t1 SET a = a WHERE id = 1;
+-- terminate_backend (pid -1 does not exist, the call still succeeds)
+SELECT pg_terminate_backend(-1);
+WARNING:  PID -1 is not a PostgreSQL backend process
+NOTICE:  [GOLD] Achievement unlocked: Executioner (+50)
+DETAIL:  Call pg_terminate_backend. Total score: 265.
+ pg_terminate_backend 
+----------------------
+ f
+(1 row)
+
+-- a failed query does not count stmt_select
+SELECT 1 / 0;
+ERROR:  division by zero
+-- night_query: 03:00-05:00 in the session time zone
+SET pg_achievements.test_now = '2026-11-18 03:30:00-08';
+SELECT 2 AS night;
+NOTICE:  [BRONZE] Achievement unlocked: Night Owl (+10)
+DETAIL:  Run a query between 03:00 and 05:00. Total score: 275.
+ night 
+-------
+     2
+(1 row)
+
+-- SET and RESET run "at night" too and count as night queries
+SET timezone = 'Asia/Novosibirsk';  -- 18:30 there: not night
+SELECT 3 AS day;
+ day 
+-----
+   3
+(1 row)
+
+RESET timezone;
+RESET pg_achievements.test_now;
+\set QUIET off
+SELECT * FROM pga_counters();
+        key        | value 
+-------------------+-------
+ cte_any           |     2
+ cte_recursive     |     1
+ delete_no_where   |     1
+ join_count_max    |     2
+ jsonb_ops         |     5
+ lateral           |     1
+ night_query       |     3
+ null_eq           |     1
+ select_star       |     4
+ stmt_select       |    20
+ terminate_backend |     1
+ update_no_where   |     2
+ window_func       |     1
+(13 rows)
+
+RESET ROLE;
+RESET

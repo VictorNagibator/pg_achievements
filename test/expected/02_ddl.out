@@ -1,0 +1,110 @@
+-- Counters of utility commands (ProcessUtility_hook).
+SELECT pga_test_role('t_ddl', true);
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+SET ROLE t_ddl;
+\set QUIET on
+EXPLAIN (COSTS OFF) SELECT 1;
+NOTICE:  [BRONZE] Achievement unlocked: Investigator (+10)
+DETAIL:  Ask the planner with EXPLAIN. Total score: 10.
+ QUERY PLAN 
+------------
+ Result
+(1 row)
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) SELECT 1;
+NOTICE:  [SILVER] Achievement unlocked: Detective (+25)
+DETAIL:  Run EXPLAIN ANALYZE. Total score: 35.
+            QUERY PLAN             
+-----------------------------------
+ Result (actual rows=1.00 loops=1)
+(1 row)
+
+CREATE TABLE d1 (id int, v int);
+NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
+DETAIL:  Create your first table. Total score: 45.
+CREATE TABLE IF NOT EXISTS d1 (id int);   -- exists: not counted
+NOTICE:  relation "d1" already exists, skipping
+CREATE TABLE d2 AS SELECT 1 AS id;
+CREATE INDEX d1_v ON d1 (v);
+NOTICE:  [BRONZE] Achievement unlocked: Indexer (+10)
+DETAIL:  Create your first index. Total score: 55.
+CREATE INDEX CONCURRENTLY d1_id ON d1 (id);
+NOTICE:  [SILVER] Achievement unlocked: No Locks (+25)
+DETAIL:  Create an index CONCURRENTLY. Total score: 80.
+CREATE FUNCTION d_trg() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
+NOTICE:  [BRONZE] Achievement unlocked: Functionary (+10)
+DETAIL:  Create your first function or procedure. Total score: 90.
+CREATE PROCEDURE d_proc() LANGUAGE sql AS $$ SELECT 1 $$;
+CREATE TRIGGER d1_trg BEFORE INSERT ON d1 FOR EACH ROW EXECUTE FUNCTION d_trg();
+NOTICE:  [SILVER] Achievement unlocked: Trigger Happy (+25)
+DETAIL:  Create a trigger. Total score: 115.
+CREATE TABLE dp (id int) PARTITION BY RANGE (id);
+NOTICE:  [SILVER] Achievement unlocked: Divide and Conquer (+25)
+DETAIL:  Create a partitioned table or a partition. Total score: 140.
+CREATE TABLE dp_1 PARTITION OF dp FOR VALUES FROM (0) TO (100);
+TRUNCATE d1;
+NOTICE:  [GOLD] Achievement unlocked: Clean Slate (+50)
+DETAIL:  TRUNCATE a table. Total score: 190.
+VACUUM d1;              -- plain VACUUM: not counted
+VACUUM (FULL) d1;
+NOTICE:  [GOLD] Achievement unlocked: Master of the Table (+50)
+DETAIL:  Run VACUUM FULL. Total score: 240.
+CREATE EXTENSION IF NOT EXISTS plpgsql;    -- exists: not counted
+NOTICE:  extension "plpgsql" already exists, skipping
+-- DROP TABLE counts every dropped table
+DROP TABLE d1, d2;
+DROP TABLE IF EXISTS d_missing;            -- nothing dropped
+NOTICE:  table "d_missing" does not exist, skipping
+DROP TABLE dp;
+CREATE DATABASE pga_drop_me;
+DROP DATABASE pga_drop_me;
+NOTICE:  [PLATINUM] Achievement unlocked: You Only Live Once (+100)
+DETAIL:  Drop a database. Total score: 340.
+DROP DATABASE IF EXISTS pga_drop_me;       -- nothing dropped
+NOTICE:  database "pga_drop_me" does not exist, skipping
+-- DDL on Friday evening; Friday morning and Saturday do not count
+SET pg_achievements.test_now = '2026-11-20 09:00:00-08';
+CREATE TABLE fri_morning (id int);
+SET pg_achievements.test_now = '2026-11-21 19:00:00-08';
+CREATE TABLE saturday (id int);
+SET pg_achievements.test_now = '2026-11-20 18:30:00-08';
+CREATE TABLE fri_evening (id int);
+NOTICE:  [GOLD] Achievement unlocked: Friday Deploy (+50)
+DETAIL:  Run DDL on a Friday after 18:00. Total score: 390.
+SELECT 1 AS not_ddl;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 400.
+ not_ddl 
+---------
+       1
+(1 row)
+
+RESET pg_achievements.test_now;
+DROP TABLE fri_morning, saturday, fri_evening;
+\set QUIET off
+SELECT * FROM pga_counters();
+            key            | value 
+---------------------------+-------
+ create_function           |     2
+ create_index              |     2
+ create_index_concurrently |     1
+ create_table              |     7
+ create_trigger            |     1
+ ddl_friday_evening        |     1
+ drop_database             |     1
+ drop_table                |     6
+ explain_analyze           |     1
+ explain_any               |     2
+ partition_create          |     2
+ select_star               |     1
+ stmt_select               |     1
+ truncate                  |     1
+ vacuum_full               |     1
+(15 rows)
+
+RESET ROLE;
+RESET

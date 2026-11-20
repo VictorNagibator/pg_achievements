@@ -1,0 +1,91 @@
+-- Counters measured by the executor and at transaction end.
+SELECT pga_test_role('t_exec');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+CREATE TABLE big (id int);
+INSERT INTO big SELECT generate_series(1, 2000);   -- big_table_rows = 1000
+CREATE TABLE small (id int PRIMARY KEY);
+INSERT INTO small SELECT generate_series(1, 10);
+ANALYZE big, small;
+GRANT SELECT ON big, small TO t_exec;
+SET ROLE t_exec;
+\set QUIET on
+-- seqscan_big: only a sequential scan of a big table counts
+SET enable_indexscan = off;
+SET enable_bitmapscan = off;
+SELECT count(*) FROM small;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 10.
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM big;
+NOTICE:  [GOLD] Achievement unlocked: Indexes Are for the Weak (+50)
+DETAIL:  Scan a table of a million rows sequentially. Total score: 60.
+ count 
+-------
+  2000
+(1 row)
+
+RESET enable_indexscan;
+RESET enable_bitmapscan;
+-- query_over_60s / query_over_1h: durations are shifted in the test build
+SET pg_achievements.test_time_shift = '61s';
+SELECT 1 AS slow;
+NOTICE:  [SILVER] Achievement unlocked: Patient (+25)
+DETAIL:  Wait for a query that runs longer than a minute. Total score: 85.
+ slow 
+------
+    1
+(1 row)
+
+SET pg_achievements.test_time_shift = '3601s';
+SELECT 1 AS very_slow;
+NOTICE:  [PLATINUM] Achievement unlocked: Marathon (+100)
+DETAIL:  Wait for a query that runs longer than an hour. Total score: 185.
+ very_slow 
+-----------
+         1
+(1 row)
+
+-- rollback_long_xact: only ROLLBACK (or abort) of an old transaction
+BEGIN;
+SELECT 1;
+ ?column? 
+----------
+        1
+(1 row)
+
+COMMIT;
+BEGIN;
+SELECT 1;
+ ?column? 
+----------
+        1
+(1 row)
+
+ROLLBACK;
+NOTICE:  [PLATINUM] Achievement unlocked: Time Machine (+100)
+DETAIL:  Roll back a transaction that ran for over an hour. Total score: 285.
+RESET pg_achievements.test_time_shift;
+BEGIN;
+ROLLBACK;
+\set QUIET off
+SELECT * FROM pga_counters();
+        key         | value 
+--------------------+-------
+ query_over_1h      |     3
+ query_over_60s     |     4
+ rollback_long_xact |     1
+ select_star        |     1
+ seqscan_big        |     1
+ stmt_select        |     6
+(6 rows)
+
+RESET ROLE;
+RESET

@@ -1,0 +1,52 @@
+-- Counters of errors (emit_log_hook).
+SELECT pga_test_role('t_err');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+SET ROLE t_err;
+\set QUIET on
+-- err_syntax
+SELEC 1;
+ERROR:  syntax error at or near "SELEC"
+LINE 1: SELEC 1;
+        ^
+SELECT FROM WHERE;
+ERROR:  syntax error at or near "WHERE"
+LINE 1: SELECT FROM WHERE;
+                    ^
+-- other errors do not count
+SELECT 1 / 0;
+ERROR:  division by zero
+-- deadlock and serialization failure, raised by hand; real ones are
+-- covered by the TAP tests
+DO $$ BEGIN RAISE EXCEPTION 'fake deadlock' USING ERRCODE = 'deadlock_detected'; END $$;
+NOTICE:  [GOLD] Achievement unlocked: Mutual Understanding (+50)
+DETAIL:  Take part in a deadlock. Total score: 50.
+ERROR:  fake deadlock
+CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+DO $$ BEGIN RAISE EXCEPTION 'fake conflict' USING ERRCODE = 'serialization_failure'; END $$;
+NOTICE:  [GOLD] Achievement unlocked: Conflict of Interest (+50)
+DETAIL:  Hit a serialization failure. Total score: 100.
+ERROR:  fake conflict
+CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+-- an error caught inside PL/pgSQL is never reported, so it does not count
+DO $$ BEGIN
+    RAISE EXCEPTION 'caught' USING ERRCODE = 'deadlock_detected';
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+\set QUIET off
+SELECT * FROM pga_counters();
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 110.
+          key          | value 
+-----------------------+-------
+ deadlock              |     1
+ err_syntax            |     2
+ select_star           |     1
+ serialization_failure |     1
+(4 rows)
+
+RESET ROLE;
+RESET
