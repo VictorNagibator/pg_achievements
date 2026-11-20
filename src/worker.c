@@ -20,6 +20,11 @@
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/pg_type.h"
+#include "access/heapam.h"
+#include "access/htup_details.h"
+#include "access/table.h"
+#include "access/tableam.h"
+#include "catalog/pg_database.h"
 #include "executor/spi.h"
 #include "miscadmin.h"
 #include "pgstat.h"
@@ -68,6 +73,12 @@ pga_worker_sigterm(SIGNAL_ARGS)
 	errno = save_errno;
 }
 
+/*
+ * The launcher is a static worker without a database connection.  It waits
+ * until pg_achievements.database exists, then starts the flush worker as a
+ * dynamic worker and restarts it 10 seconds after it exits.  This way the
+ * database may be created after the server has started.
+ */
 void
 pga_register_worker(void)
 {
@@ -76,20 +87,150 @@ pga_register_worker(void)
 	memset(&worker, 0, sizeof(worker));
 	worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
-	worker.bgw_restart_time = 10;
+	worker.bgw_restart_time = PGA_WORKER_RESTART_S;
+	strlcpy(worker.bgw_library_name, PGA_EXTNAME, BGW_MAXLEN);
+	strlcpy(worker.bgw_function_name, "pga_launcher_main", BGW_MAXLEN);
+	strlcpy(worker.bgw_name, "pg_achievements launcher", BGW_MAXLEN);
+	strlcpy(worker.bgw_type, "pg_achievements launcher", BGW_MAXLEN);
+	RegisterBackgroundWorker(&worker);
+}
+
+static bool
+pga_database_exists(void)
+{
+	bool		exists = false;
+	Relation	rel;
+	TableScanDesc scan;
+	HeapTuple	tup;
+
+	/*
+	 * Without a database only shared catalogs can be read, and not through
+	 * their indexes: scan pg_database like the autovacuum launcher does.
+	 */
+	StartTransactionCommand();
+	(void) GetTransactionSnapshot();
+	rel = table_open(DatabaseRelationId, AccessShareLock);
+	scan = table_beginscan_catalog(rel, 0, NULL);
+	while ((tup = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		Form_pg_database db = (Form_pg_database) GETSTRUCT(tup);
+
+		if (strcmp(NameStr(db->datname), pga_database) == 0)
+		{
+			exists = true;
+			break;
+		}
+	}
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
+	CommitTransactionCommand();
+	return exists;
+}
+
+static BackgroundWorkerHandle *
+pga_start_flush_worker(void)
+{
+	BackgroundWorker worker;
+	BackgroundWorkerHandle *handle;
+
+	memset(&worker, 0, sizeof(worker));
+	worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+	worker.bgw_start_time = BgWorkerStart_ConsistentState;
+	worker.bgw_restart_time = BGW_NEVER_RESTART;
+	worker.bgw_notify_pid = MyProcPid;
 	strlcpy(worker.bgw_library_name, PGA_EXTNAME, BGW_MAXLEN);
 	strlcpy(worker.bgw_function_name, "pga_worker_main", BGW_MAXLEN);
 	strlcpy(worker.bgw_name, "pg_achievements worker", BGW_MAXLEN);
 	strlcpy(worker.bgw_type, "pg_achievements", BGW_MAXLEN);
-	RegisterBackgroundWorker(&worker);
+
+	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
+	{
+		ereport(WARNING,
+				(errmsg("pg_achievements: could not start the worker"),
+				 errhint("Consider increasing max_worker_processes.")));
+		return NULL;
+	}
+	return handle;
+}
+
+void
+pga_launcher_main(Datum main_arg)
+{
+	BackgroundWorkerHandle *handle = NULL;
+	TimestampTz last_exit = 0;
+	bool		warned = false;
+
+	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	pqsignal(SIGTERM, pga_worker_sigterm);
+	BackgroundWorkerUnblockSignals();
+
+	/* no database: only shared catalogs such as pg_database */
+	BackgroundWorkerInitializeConnection(NULL, NULL, 0);
+
+	pga_shared->launcher_latch = MyLatch;
+
+	while (!got_sigterm)
+	{
+		pid_t		pid;
+
+		if (ConfigReloadPending)
+		{
+			ConfigReloadPending = false;
+			ProcessConfigFile(PGC_SIGHUP);
+		}
+
+		if (handle != NULL &&
+			GetBackgroundWorkerPid(handle, &pid) == BGWH_STOPPED)
+		{
+			pfree(handle);
+			handle = NULL;
+			last_exit = GetCurrentTimestamp();
+		}
+
+		if (handle == NULL &&
+			(last_exit == 0 ||
+			 TimestampDifferenceExceeds(last_exit, GetCurrentTimestamp(),
+										PGA_WORKER_RESTART_S * 1000)))
+		{
+			if (pga_database_exists())
+			{
+				handle = pga_start_flush_worker();
+				warned = false;
+				if (handle == NULL)
+					last_exit = GetCurrentTimestamp();
+			}
+			else if (!warned)
+			{
+				ereport(LOG,
+						(errmsg("pg_achievements: waiting for database \"%s\" to be created",
+								pga_database)));
+				warned = true;
+			}
+		}
+
+		(void) WaitLatch(MyLatch,
+						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						 1000, PG_WAIT_EXTENSION);
+		ResetLatch(MyLatch);
+		/* absorbs ProcSignalBarriers, e.g. from DROP DATABASE */
+		CHECK_FOR_INTERRUPTS();
+	}
+
+	pga_shared->launcher_latch = NULL;
+	proc_exit(0);
 }
 
 void
 pga_wake_worker(void)
 {
-	Latch	   *latch = pga_shared ? pga_shared->worker_latch : NULL;
+	Latch	   *latch;
 
+	if (pga_shared == NULL)
+		return;
+	latch = pga_shared->worker_latch;
 	if (latch != NULL)
+		SetLatch(latch);
+	else if ((latch = pga_shared->launcher_latch) != NULL)
 		SetLatch(latch);
 }
 
@@ -525,6 +666,13 @@ pga_cycle(void)
 	pgstat_report_activity(STATE_IDLE, NULL);
 }
 
+static void
+pga_worker_exit(int code, Datum arg)
+{
+	pga_shared->worker_latch = NULL;
+	pga_shared->worker_pid = 0;
+}
+
 void
 pga_worker_main(Datum main_arg)
 {
@@ -536,6 +684,7 @@ pga_worker_main(Datum main_arg)
 
 	pga_shared->worker_pid = MyProcPid;
 	pga_shared->worker_latch = MyLatch;
+	before_shmem_exit(pga_worker_exit, (Datum) 0);
 
 	cycle_cxt = AllocSetContextCreate(TopMemoryContext,
 									  "pg_achievements worker cycle",
@@ -594,11 +743,11 @@ pga_worker_main(Datum main_arg)
 						 ok ? pga_flush_interval_ms : Max(pga_flush_interval_ms, 1000),
 						 PG_WAIT_EXTENSION);
 		ResetLatch(MyLatch);
+		/* absorbs ProcSignalBarriers, e.g. from DROP DATABASE */
+		CHECK_FOR_INTERRUPTS();
 
 		/* one last flush after SIGTERM */
 	}
 
-	pga_shared->worker_latch = NULL;
-	pga_shared->worker_pid = 0;
 	proc_exit(1);
 }

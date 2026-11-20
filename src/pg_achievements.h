@@ -171,6 +171,7 @@ typedef struct PgaShared
 	/* worker state */
 	pid_t		worker_pid;
 	Latch	   *worker_latch;
+	Latch	   *launcher_latch;
 	pg_atomic_uint32 ready;		/* catalog and progress loaded from tables */
 	pg_atomic_uint32 catalog_version;
 	pg_atomic_uint64 flush_requests;	/* bumped by backends asking for sync */
@@ -277,5 +278,8 @@ extern void pga_install_hooks(void);
 extern void pga_register_worker(void);
 extern void pga_wake_worker(void);
 PGDLLEXPORT void pga_worker_main(Datum main_arg);
+PGDLLEXPORT void pga_launcher_main(Datum main_arg);
+
+#define PGA_WORKER_RESTART_S	10
 
 #endif							/* PG_ACHIEVEMENTS_H */
