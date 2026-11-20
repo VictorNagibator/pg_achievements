@@ -234,6 +234,7 @@ extern int	pga_max_roles;
 #ifdef PGA_TESTING
 extern char *pga_test_now;
 extern int	pga_test_time_shift;
+extern bool pga_test_inject_error;
 #endif
 
 typedef enum PgaNoticeStyle
@@ -251,6 +252,7 @@ extern void pga_count(PgaCounter c, int64 n);
 extern void pga_count_max(PgaCounter c, int64 v);
 extern void pga_count_error(int sqlerrcode);
 extern void pga_flush_local(bool check);
+extern void pga_invalidate_cache(void);
 extern void pga_maybe_flush_by_time(TimestampTz now);
 extern void pga_set_role_name(const char *rolname);
 extern bool pga_sync_role(void);

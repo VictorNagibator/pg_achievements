@@ -8,7 +8,10 @@
  * local check says that a threshold may have been reached.
  *
  * Effective value of a counter = value in shared memory at the last refresh
- * plus the local delta (for "max" counters: the larger of both).
+ * plus the local delta (for "max" counters: the larger of both).  Flushed
+ * deltas are added to the cached values right away; the cache is re-read
+ * from shared memory (to see what other sessions of the role did) at most
+ * once per flush_interval_ms, or when a check is about to award something.
  *
  *-------------------------------------------------------------------------
  */
@@ -33,6 +36,7 @@ static int64 delta[PGA_NUM_COUNTERS];
 static int64 localmax[PGA_NUM_COUNTERS];
 static bool dirty = false;
 static TimestampTz last_flush = 0;
+static TimestampTz last_refresh = 0;	/* last full re-read of shared values */
 static bool exit_callback_registered = false;
 
 /* view of shared state as of the last refresh */
@@ -48,6 +52,10 @@ static void pga_refresh_cache(void);
 static void pga_check_counter(PgaCounter c);
 static void pga_check_meta(PgaRoleEntry *entry, bool notify);
 
+/*
+ * Should events of this backend be counted at all?  Cheap: GUCs and a
+ * process type check only, called at the top of every hook.
+ */
 bool
 pga_tracking_active(void)
 {
@@ -75,6 +83,10 @@ pga_disable_session(ErrorData *edata)
 			 errhidecontext(true)));
 }
 
+/*
+ * before_shmem_exit callback: hand the last unflushed deltas to shared
+ * memory so the worker writes them.
+ */
 static void
 pga_on_exit(int code, Datum arg)
 {
@@ -83,6 +95,10 @@ pga_on_exit(int code, Datum arg)
 		pga_flush_local(false);
 }
 
+/*
+ * Shared entry of the current role, created on first use (the only place a
+ * backend takes the lock exclusively).
+ */
 static PgaRoleEntry *
 pga_current_entry(void)
 {
@@ -169,6 +185,7 @@ pga_load_local_catalog(void)
 	local_catalog_loaded = true;
 }
 
+/* Slot of the backend-local catalog copy, or NULL past its end. */
 const PgaCatalogSlot *
 pga_local_slot(int slot)
 {
@@ -177,6 +194,10 @@ pga_local_slot(int slot)
 	return &local_catalog[slot];
 }
 
+/*
+ * Slot of an achievement code in the local catalog copy, or -1 while the
+ * worker has not loaded the catalog yet.
+ */
 int
 pga_local_slot_by_code(const char *code)
 {
@@ -191,6 +212,10 @@ pga_local_slot_by_code(const char *code)
 	return -1;
 }
 
+/*
+ * Effective value of a counter: shared value at the last refresh plus the
+ * local delta (sum) or the larger of both (max).
+ */
 static inline int64
 pga_effective(PgaCounter c)
 {
@@ -432,6 +457,7 @@ void
 pga_flush_local(bool check)
 {
 	PgaRoleEntry *entry;
+	TimestampTz now;
 
 	if (pga_shared == NULL || !cur_role_valid)
 		return;
@@ -447,10 +473,14 @@ pga_flush_local(bool check)
 				{
 					if (delta[c] != 0)
 						pg_atomic_fetch_add_u64(&entry->values[c], delta[c]);
+					/* our own contribution is known exactly, keep it cached */
+					cached[c] += delta[c];
 				}
 				else if (localmax[c] > 0)
 				{
 					uint64		old = pg_atomic_read_u64(&entry->values[c]);
+
+					cached[c] = Max(cached[c], localmax[c]);
 
 					while ((int64) old < localmax[c] &&
 						   !pg_atomic_compare_exchange_u64(&entry->values[c], &old,
@@ -464,13 +494,39 @@ pga_flush_local(bool check)
 		dirty = false;
 	}
 
-	last_flush = GetCurrentTimestamp();
+	now = GetCurrentTimestamp();
+	last_flush = now;
 
-	if (check)
+	/*
+	 * Re-reading every counter of the role at each commit is what costs:
+	 * with many sessions of one role those cache lines are written by all
+	 * of them.  Our own deltas are already in the cache, so only the
+	 * progress made by other sessions needs a refresh, and once per flush
+	 * interval is enough for that.
+	 */
+	if (!check)
+		return;
+
+	if (!cache_ready ||
+		TimestampDifferenceExceeds(last_refresh, now, pga_flush_interval_ms))
 	{
 		pga_refresh_cache();
-		pga_check_all();
+		last_refresh = now;
 	}
+
+	/*
+	 * Compare the cached values with the thresholds.  This is purely local
+	 * unless something is due, and it is what reports the counters bumped
+	 * by emit_log_hook, which never checks thresholds itself.
+	 */
+	pga_check_all();
+}
+
+/* Make the next flush re-read the shared state (e.g. after a sync). */
+void
+pga_invalidate_cache(void)
+{
+	last_refresh = 0;
 }
 
 /* Flush at least every flush_interval_ms inside long transactions. */

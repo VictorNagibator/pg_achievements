@@ -32,6 +32,7 @@ const char *const pga_tier_names[PGA_NUM_TIERS] = {
 	"bronze", "silver", "gold", "platinum"
 };
 
+/* Counter index by SQL key, or -1. */
 int
 pga_counter_by_key(const char *key)
 {
@@ -43,6 +44,7 @@ pga_counter_by_key(const char *key)
 	return -1;
 }
 
+/* Tier index by its SQL enum label, or -1. */
 int
 pga_tier_by_name(const char *name)
 {
@@ -77,6 +79,7 @@ PG_FUNCTION_INFO_V1(pga_sql_grant);
 PG_FUNCTION_INFO_V1(pga_sql_counter_keys);
 PG_FUNCTION_INFO_V1(pga_sql_library_version);
 
+/* SQL functions cannot work if the library was not preloaded. */
 static void
 pga_require_shmem(void)
 {
@@ -142,6 +145,7 @@ pga_sql_sync(PG_FUNCTION_ARGS)
 	}
 
 	/* the worker may have just loaded the catalog: report what is due */
+	pga_invalidate_cache();
 	pga_flush_local(pga_tracking_active());
 
 	PG_RETURN_BOOL(done);
