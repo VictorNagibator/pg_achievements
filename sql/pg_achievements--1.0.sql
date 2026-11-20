@@ -211,8 +211,9 @@ AS $$
 DECLARE
     granted bool;
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM achievements.catalog c WHERE c.code = grant.code) THEN
-        RAISE EXCEPTION 'unknown achievement "%"', code;
+    -- "grant" is a reserved word, so the parameter cannot be qualified
+    IF NOT EXISTS (SELECT 1 FROM achievements.catalog c WHERE c.code = $2) THEN
+        RAISE EXCEPTION 'unknown achievement "%"', $2;
     END IF;
     PERFORM achievements.sync();
     granted := achievements._grant(role, code);
