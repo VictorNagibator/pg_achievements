@@ -22,17 +22,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          # libpq/libpq-be.h (needed for ClientAuthentication_hook) pulls in
+          # the GSSAPI and OpenSSL headers on Debian/Ubuntu builds
           sudo apt-get install -y \
             postgresql-${{ matrix.pg }} postgresql-server-dev-${{ matrix.pg }} \
-            libipc-run-perl
+            libkrb5-dev libssl-dev libipc-run-perl
           # the packaged server must not hold the test ports
           sudo systemctl stop postgresql || true
 
       - name: Build
         run: |
-          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg }}/bin/pg_config
-          make PGA_TESTING=1
-          sudo make PGA_TESTING=1 install
+          # pass PG_CONFIG on the command line: sudo drops the environment
+          PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg }}/bin/pg_config
+          make PG_CONFIG=$PG_CONFIG PGA_TESTING=1
+          sudo make PG_CONFIG=$PG_CONFIG PGA_TESTING=1 install
 
       - name: Test
         run: |

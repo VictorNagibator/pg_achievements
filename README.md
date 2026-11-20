@@ -22,7 +22,9 @@ evening deploy. All 46 builtin achievements are listed in
 - PostgreSQL 16, 17 or 18 on Linux; the main development version is 18;
 - the server must preload the library (`shared_preload_libraries`), so managed
   services such as RDS or Cloud SQL are not supported;
-- server headers and PGXS (`postgresql-server-dev-NN` on Debian/Ubuntu).
+- server headers and PGXS: `postgresql-server-dev-NN` on Debian/Ubuntu,
+  plus `libkrb5-dev` (the server headers include the GSSAPI header when
+  PostgreSQL is built with GSSAPI, as the PGDG packages are).
 
 There are no other dependencies.
 
