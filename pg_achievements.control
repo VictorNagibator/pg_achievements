@@ -1,0 +1,8 @@
+# pg_achievements extension
+comment = 'Game achievements for PostgreSQL users'
+default_version = '1.0'
+module_pathname = '$libdir/pg_achievements'
+relocatable = false
+schema = achievements
+superuser = true
+trusted = false
