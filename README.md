@@ -1,5 +1,10 @@
 # pg_achievements
 
+[![CI](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml)
+[![PostgreSQL 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-16%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](#requirements)
+[![PGXN version](https://badge.fury.io/pg/pg_achievements.svg)](https://pgxn.org/dist/pg_achievements/)
+[![License: PostgreSQL](https://img.shields.io/badge/license-PostgreSQL-blue)](LICENSE)
+
 Game achievements for PostgreSQL users. The extension watches what roles do in
 the database and hands out achievements in four tiers (bronze, silver, gold,
 platinum). The notice arrives right in the client, in the same session:
@@ -29,6 +34,14 @@ evening deploy. All 46 builtin achievements are listed in
 There are no other dependencies.
 
 ## Installation
+
+From [PGXN](https://pgxn.org/dist/pg_achievements/):
+
+```sh
+pgxn install pg_achievements
+```
+
+Or from source:
 
 ```sh
 make                 # uses the first pg_config in PATH
