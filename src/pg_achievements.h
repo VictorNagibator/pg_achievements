@@ -3,7 +3,7 @@
  * pg_achievements.h
  *		Shared declarations of the pg_achievements extension.
  *
- * Copyright (c) 2026, pg_achievements authors
+ * Copyright (c) 2026, Viktor Donskoi
  * Released under the PostgreSQL License.
  *
  *-------------------------------------------------------------------------
