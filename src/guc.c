@@ -26,6 +26,7 @@ int			pga_max_roles = 1024;
 #ifdef PGA_TESTING
 char	   *pga_test_now = NULL;
 int			pga_test_time_shift = 0;
+bool		pga_test_inject_error = false;
 
 static TimestampTz pga_test_now_value = 0;
 static bool pga_test_now_set = false;
@@ -38,6 +39,7 @@ static const struct config_enum_entry notice_style_options[] = {
 };
 
 #ifdef PGA_TESTING
+/* Parse test_now once in the check hook; the value is kept in "extra". */
 static bool
 check_test_now(char **newval, void **extra, GucSource source)
 {
@@ -64,6 +66,7 @@ check_test_now(char **newval, void **extra, GucSource source)
 	return true;
 }
 
+/* Publish the parsed test_now value (or clear it). */
 static void
 assign_test_now(const char *newval, void *extra)
 {
@@ -77,6 +80,7 @@ assign_test_now(const char *newval, void *extra)
 }
 #endif
 
+/* Register all parameters; called from _PG_init in the postmaster. */
 void
 pga_define_gucs(void)
 {
@@ -184,6 +188,15 @@ pga_define_gucs(void)
 							PGC_USERSET,
 							GUC_NOT_IN_SAMPLE | GUC_UNIT_S,
 							NULL, NULL, NULL);
+
+	DefineCustomBoolVariable("pg_achievements.test_inject_error",
+							 "Testing only: raise an error inside the parse analysis hook.",
+							 "Checks that internal errors never break user queries.",
+							 &pga_test_inject_error,
+							 false,
+							 PGC_USERSET,
+							 GUC_NOT_IN_SAMPLE,
+							 NULL, NULL, NULL);
 #endif
 
 	MarkGUCPrefixReserved("pg_achievements");

@@ -112,12 +112,14 @@ typedef struct PgaWalkContext
 		PG_END_TRY(); \
 	} while (0)
 
+/* Is the current nesting level counted (top level, or track_nested)? */
 static inline bool
 pga_level_tracked(void)
 {
 	return nesting_level == 0 || pga_track_nested;
 }
 
+/* Pending features of the statement at the current nesting level. */
 static inline PgaPending *
 pga_pending_slot(void)
 {
@@ -175,6 +177,7 @@ pga_statement_time(void)
 	return GetCurrentStatementStartTimestamp();
 }
 
+/* Statement started between 03:00 and 05:00 local time. */
 static bool
 pga_is_night(void)
 {
@@ -185,6 +188,7 @@ pga_is_night(void)
 	return hour >= 3 && hour < 5;
 }
 
+/* Statement started on a Friday at 18:00 or later, local time. */
 static bool
 pga_is_friday_evening(void)
 {
@@ -195,6 +199,7 @@ pga_is_friday_evening(void)
 	return dow == 5 && hour >= 18;
 }
 
+/* One of the JSONB operators counted by jsonb_ops. */
 static bool
 pga_is_jsonb_op(Oid opno)
 {
@@ -242,6 +247,11 @@ pga_is_null_equality(OpExpr *op)
 	return result;
 }
 
+/*
+ * Walk the analyzed query, including subqueries, CTEs and sublinks, and
+ * collect the features counted by jsonb_ops, join_count_max, null_eq,
+ * terminate_backend and the per-query flags.
+ */
 static bool
 pga_walker(Node *node, void *context)
 {
@@ -332,6 +342,11 @@ pga_has_select_star(ParseState *pstate, Query *query)
 	return false;
 }
 
+/*
+ * post_parse_analyze_hook: inspect every analyzed statement.  Attempt
+ * counters are bumped here; the rest is stored as pending until the
+ * statement succeeds.
+ */
 static void
 pga_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate)
 {
@@ -344,6 +359,13 @@ pga_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate)
 	PGA_GUARD_BEGIN;
 	{
 		PgaPending *p = pga_pending_slot();
+
+#ifdef PGA_TESTING
+		if (pga_test_inject_error)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("pg_achievements: injected error")));
+#endif
 
 		memset(p, 0, sizeof(PgaPending));
 
@@ -412,6 +434,10 @@ pga_apply_pending(PgaPending *p)
 	p->valid = false;
 }
 
+/*
+ * Find a sequential scan of a big table (reltuples >= big_table_rows) in
+ * the plan state tree; stops at the first one.
+ */
 static bool
 pga_seqscan_walker(PlanState *ps, void *context)
 {
@@ -530,6 +556,7 @@ typedef struct PgaUtilityEvents
 	int64		amounts[4];
 } PgaUtilityEvents;
 
+/* Remember a counter to bump after the utility command succeeds. */
 static void
 pga_add_event(PgaUtilityEvents *ev, PgaCounter c, int64 amount)
 {
@@ -541,6 +568,7 @@ pga_add_event(PgaUtilityEvents *ev, PgaCounter c, int64 amount)
 	}
 }
 
+/* Value of a boolean option such as EXPLAIN (ANALYZE) or VACUUM (FULL). */
 static bool
 pga_option_enabled(List *options, const char *name)
 {
@@ -556,6 +584,11 @@ pga_option_enabled(List *options, const char *name)
 	return false;
 }
 
+/*
+ * Decide, before execution, which counters a utility command bumps.  It
+ * must run before the command: IF EXISTS checks need the catalog state
+ * before the DROP, and the parse tree may be gone afterwards.
+ */
 static void
 pga_classify_utility(Node *parsetree, PgaUtilityEvents *ev)
 {
@@ -664,7 +697,7 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 				   DestReceiver *dest, QueryCompletion *qc)
 {
 	PgaUtilityEvents ev;
-	bool		track = false;
+	volatile bool track = false;	/* set inside PG_TRY, read after it */
 	int			level = nesting_level;
 
 	ev.n = 0;
@@ -714,6 +747,10 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 	}
 }
 
+/*
+ * emit_log_hook: count syntax errors, deadlocks and serialization
+ * failures of this backend.
+ */
 static void
 pga_emit_log(ErrorData *edata)
 {
@@ -725,6 +762,7 @@ pga_emit_log(ErrorData *edata)
 		pga_count_error(edata->sqlerrcode);
 }
 
+/* ClientAuthentication_hook: note a successful login. */
 static void
 pga_client_authentication(Port *port, int status)
 {
@@ -740,6 +778,11 @@ pga_client_authentication(Port *port, int status)
 		startup_pending = true;
 }
 
+/*
+ * Transaction callback: count the connection at the end of the startup
+ * transaction, check for rollbacks of old transactions, and flush local
+ * deltas at every commit and abort.
+ */
 static void
 pga_xact_callback(XactEvent event, void *arg)
 {
@@ -801,6 +844,10 @@ pga_xact_callback(XactEvent event, void *arg)
 	}
 }
 
+/*
+ * Chain all hooks; previous hooks are always called, so other extensions
+ * (pg_stat_statements, auto_explain) keep working in any preload order.
+ */
 void
 pga_install_hooks(void)
 {

@@ -1,0 +1,51 @@
+-- An internal error of the extension never breaks the user's query: it
+-- prints one WARNING and disables tracking for the rest of the session.
+SELECT pga_test_role('t_iso');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+SET ROLE t_iso;
+SET pg_achievements.test_inject_error = on;
+SELECT 1 AS still_works;
+WARNING:  pg_achievements: internal error, tracking is disabled for this session
+DETAIL:  SQLSTATE XX000
+ still_works 
+-------------
+           1
+(1 row)
+
+-- no second warning, and nothing is counted any more
+SELECT 2 AS still_works;
+ still_works 
+-------------
+           2
+(1 row)
+
+RESET pg_achievements.test_inject_error;
+SELECT 3 AS not_counted;
+ not_counted 
+-------------
+           3
+(1 row)
+
+SELECT achievements.counter('stmt_select');
+ counter 
+---------
+       0
+(1 row)
+
+RESET ROLE;
+-- a new session is tracked again
+\c
+SET ROLE t_iso;
+SELECT 4 AS counted;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 10.
+ counted 
+---------
+       4
+(1 row)
+
+RESET ROLE;
