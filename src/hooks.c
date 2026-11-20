@@ -19,7 +19,10 @@
 #include "pg_achievements.h"
 
 #include "access/xact.h"
+#include "catalog/namespace.h"
 #include "catalog/pg_class.h"
+#include "commands/dbcommands.h"
+#include "commands/extension.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
 #include "libpq/auth.h"
@@ -568,6 +571,10 @@ pga_classify_utility(Node *parsetree, PgaUtilityEvents *ev)
 			{
 				CreateStmt *stmt = (CreateStmt *) parsetree;
 
+				/* CREATE TABLE IF NOT EXISTS of an existing table: nothing new */
+				if (stmt->if_not_exists &&
+					OidIsValid(RangeVarGetRelid(stmt->relation, NoLock, true)))
+					break;
 				pga_add_event(ev, PGA_C_CREATE_TABLE, 1);
 				if (stmt->partspec != NULL || stmt->partbound != NULL)
 					pga_add_event(ev, PGA_C_PARTITION_CREATE, 1);
@@ -594,7 +601,12 @@ pga_classify_utility(Node *parsetree, PgaUtilityEvents *ev)
 			break;
 
 		case T_CreateExtensionStmt:
-			pga_add_event(ev, PGA_C_CREATE_EXTENSION, 1);
+			{
+				CreateExtensionStmt *stmt = (CreateExtensionStmt *) parsetree;
+
+				if (!OidIsValid(get_extension_oid(stmt->extname, true)))
+					pga_add_event(ev, PGA_C_CREATE_EXTENSION, 1);
+			}
 			break;
 
 		case T_DropStmt:
@@ -602,12 +614,26 @@ pga_classify_utility(Node *parsetree, PgaUtilityEvents *ev)
 				DropStmt   *stmt = (DropStmt *) parsetree;
 
 				if (stmt->removeType == OBJECT_TABLE)
-					pga_add_event(ev, PGA_C_DROP_TABLE, list_length(stmt->objects));
+				{
+					ListCell   *lc;
+					int			n = 0;
+
+					/* with IF EXISTS, count only the tables that exist */
+					foreach(lc, stmt->objects)
+					{
+						RangeVar   *rv = makeRangeVarFromNameList((List *) lfirst(lc));
+
+						if (OidIsValid(RangeVarGetRelid(rv, NoLock, true)))
+							n++;
+					}
+					pga_add_event(ev, PGA_C_DROP_TABLE, n);
+				}
 			}
 			break;
 
 		case T_DropdbStmt:
-			pga_add_event(ev, PGA_C_DROP_DATABASE, 1);
+			if (OidIsValid(get_database_oid(((DropdbStmt *) parsetree)->dbname, true)))
+				pga_add_event(ev, PGA_C_DROP_DATABASE, 1);
 			break;
 
 		case T_TruncateStmt:
