@@ -1,0 +1,4 @@
+# not shipped in release archives (make dist, GitHub source downloads)
+.github         export-ignore
+.gitattributes  export-ignore
+.gitignore      export-ignore

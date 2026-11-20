@@ -1,0 +1,51 @@
+{
+   "name": "pg_achievements",
+   "abstract": "Game achievements for PostgreSQL users, unlocked by what they do in the database",
+   "description": "pg_achievements watches what roles do in PostgreSQL and awards bronze, silver, gold and platinum achievements, with an instant notice in the client. 46 builtin achievements nudge users toward EXPLAIN ANALYZE, recursive CTEs, window functions and partitioning, and poke fun at UPDATE without WHERE or Friday evening deploys. Requires shared_preload_libraries.",
+   "version": "1.0.0",
+   "maintainer": [
+      "Viktor Donskoi <vityadonskoy2004@gmail.com>"
+   ],
+   "license": "postgresql",
+   "provides": {
+      "pg_achievements": {
+         "abstract": "Game achievements for PostgreSQL users",
+         "file": "sql/pg_achievements--1.0.sql",
+         "docfile": "README.md",
+         "version": "1.0.0"
+      }
+   },
+   "prereqs": {
+      "runtime": {
+         "requires": {
+            "PostgreSQL": "16.0.0"
+         }
+      }
+   },
+   "resources": {
+      "homepage": "https://github.com/VictorNagibator/pg_achievements",
+      "bugtracker": {
+         "web": "https://github.com/VictorNagibator/pg_achievements/issues"
+      },
+      "repository": {
+         "url": "https://github.com/VictorNagibator/pg_achievements.git",
+         "web": "https://github.com/VictorNagibator/pg_achievements",
+         "type": "git"
+      }
+   },
+   "generated_by": "Viktor Donskoi",
+   "meta-spec": {
+      "version": "1.0.0",
+      "url": "https://pgxn.org/meta/spec.txt"
+   },
+   "tags": [
+      "achievements",
+      "gamification",
+      "education",
+      "monitoring",
+      "hooks",
+      "background worker",
+      "fun"
+   ],
+   "release_status": "stable"
+}

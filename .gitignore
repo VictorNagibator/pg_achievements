@@ -12,3 +12,4 @@
 *.dylib
 .deps/
 /test/log/
+/pg_achievements-*.zip

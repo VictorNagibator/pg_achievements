@@ -31,3 +31,11 @@ PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
 $(OBJS): src/pg_achievements.h
+
+# Release archive for PGXN and GitHub: make dist -> pg_achievements-X.Y.Z.zip
+# Built from the committed tree (git archive), so commit before running it.
+DIST_VERSION = $(shell sed -n 's/^   "version": "\(.*\)",/\1/p' META.json)
+dist:
+	git archive --format zip --prefix=$(EXTENSION)-$(DIST_VERSION)/ \
+		-o $(EXTENSION)-$(DIST_VERSION).zip HEAD
+.PHONY: dist
