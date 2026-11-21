@@ -1,8 +1,8 @@
 {
    "name": "pg_achievements",
    "abstract": "Game achievements for PostgreSQL users, unlocked by what they do in the database",
-   "description": "pg_achievements watches what roles do in PostgreSQL and awards bronze, silver, gold and platinum achievements, with an instant notice in the client. 46 builtin achievements nudge users toward EXPLAIN ANALYZE, recursive CTEs, window functions and partitioning, and poke fun at UPDATE without WHERE or Friday evening deploys. Requires shared_preload_libraries.",
-   "version": "1.0.0",
+   "description": "pg_achievements watches what roles do in PostgreSQL and awards bronze, silver and gold achievements, with an instant notice in the client; a single platinum one crowns the full collection. 68 builtin achievements nudge users toward EXPLAIN ANALYZE, recursive CTEs, window functions, MERGE and partitioning, and poke fun at UPDATE without WHERE, cartesian products or Friday evening deploys. Requires shared_preload_libraries.",
+   "version": "1.1.0",
    "maintainer": [
       "Viktor Donskoi <vityadonskoy2004@gmail.com>"
    ],
@@ -10,9 +10,9 @@
    "provides": {
       "pg_achievements": {
          "abstract": "Game achievements for PostgreSQL users",
-         "file": "sql/pg_achievements--1.0.sql",
+         "file": "sql/pg_achievements--1.1.sql",
          "docfile": "README.md",
-         "version": "1.0.0"
+         "version": "1.1.0"
       }
    },
    "prereqs": {

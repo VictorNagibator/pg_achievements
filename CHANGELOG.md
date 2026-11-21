@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.1.0 — 2026-11-21
+
+Platinum is now a single trophy, as on game consoles: collect everything
+else to get it.
+
+- Platinum holds one achievement, `platinum_collection`, renamed to
+  Slonik's Chosen and worth 300 points. Unlocking it shows Slonik, the
+  PostgreSQL elephant, and a congratulation in the notice.
+- The other seven platinum achievements (`yolo`, `time_machine`,
+  `ten_joins`, `scorched_earth`, `marathon`, `serial_killer`, `gold_rush`)
+  move to gold and are worth 50 points.
+- 22 new achievements, 68 in all (16 bronze, 21 silver, 30 gold,
+  1 platinum): Ctrl+Z, Upsert Happens, Returning Hero, Self-Documenting,
+  Merge Conflict, Save Point, Materialist, Queue Master, Cube Master,
+  Big Brother, Are You Listening?, Where Is My Table?, To Infinity and
+  Beyond, Cartesian Explosion, NOT IN Trouble, Lock Hoarder, On a Roll,
+  Billionaire and four secret ones.
+- 23 new counters, 58 in all, among them `streak_days` (consecutive active
+  days) and `rows_processed`.
+- `achievements.define()` no longer accepts the platinum tier. Custom
+  platinum achievements created with 1.0 are kept.
+- Upgrade with `ALTER EXTENSION pg_achievements UPDATE` after installing the
+  new version and restarting the server. Awards and counters are kept.
+
 ## 1.0.0 — 2026-11-21
 
 First release.
