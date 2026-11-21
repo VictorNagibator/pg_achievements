@@ -34,7 +34,7 @@ $dst->restart;
 pga_sync($dst);
 
 is($dst->safe_psql('postgres', $q), $awards, 'awards restored');
-is($dst->safe_psql('postgres', 'SELECT count(*) FROM achievements.catalog'), '47',
+is($dst->safe_psql('postgres', 'SELECT count(*) FROM achievements.catalog'), '69',
 	'builtin catalog not duplicated, custom achievement restored');
 is($dst->safe_psql('postgres',
 	q{SELECT value FROM achievements.counters WHERE role_name = 'bob' AND counter_key = 'vacuum_full'}),

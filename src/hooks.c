@@ -6,10 +6,11 @@
  *
  * Rules:
  *	- only top-level statements are counted unless track_nested is on;
- *	- update_no_where, delete_no_where, null_eq and select_star are counted
- *	  at parse analysis (the attempt matters); everything else derived from a
- *	  query is kept as "pending" and counted only when the statement finishes
- *	  successfully (ExecutorEnd or the end of ProcessUtility);
+ *	- update_no_where, delete_no_where, null_eq, select_star,
+ *	  cartesian_product and not_in_subquery are counted at parse analysis
+ *	  (the attempt matters); everything else derived from a query is kept as
+ *	  "pending" and counted only when the statement finishes successfully
+ *	  (ExecutorEnd or the end of ProcessUtility);
  *	- our own code runs inside PG_TRY: an internal failure prints a single
  *	  WARNING, disables tracking for the session and never breaks the user's
  *	  query.  Errors of the hooked functions themselves propagate unchanged.
@@ -29,10 +30,13 @@
 #include "commands/defrem.h"
 #include "executor/executor.h"
 #include "libpq/auth.h"
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/analyze.h"
+#include "parser/parsetree.h"
 #include "tcop/utility.h"
+#include "utils/builtins.h"
 #include "utils/datetime.h"
 #include "utils/elog.h"
 #include "utils/fmgroids.h"
@@ -71,6 +75,12 @@ static bool startup_pending = false;
 #define PF_LATERAL		0x0008
 #define PF_NIGHT		0x0010
 #define PF_SELECT		0x0020
+#define PF_UPSERT		0x0040
+#define PF_RETURNING	0x0080
+#define PF_MERGE		0x0100
+#define PF_SKIP_LOCKED	0x0200
+#define PF_GROUPING		0x0400
+#define PF_NEW_YEAR		0x0800
 
 typedef struct PgaPending
 {
@@ -79,6 +89,8 @@ typedef struct PgaPending
 	int			joins;
 	int			jsonb_ops;
 	int			terminate;
+	int			notify;			/* pg_notify() calls */
+	int32		day;			/* local day number, for streak_days */
 } PgaPending;
 
 static PgaPending pending[PGA_MAX_NESTING];
@@ -90,8 +102,22 @@ typedef struct PgaWalkContext
 	int			joins;
 	int			jsonb_ops;
 	int			terminate;
+	int			notify;
 	int			null_eq;
+	int			cartesian;
+	int			not_in;
 } PgaWalkContext;
+
+/* Local wall-clock time of a statement, see pga_local_time() */
+typedef struct PgaLocalTime
+{
+	int			hour;			/* -1 if the time could not be converted */
+	int			minute;
+	int			dow;			/* 0 = Sunday */
+	int			mon;			/* 1..12 */
+	int			mday;
+	int32		day;			/* day number as returned by date2j() */
+} PgaLocalTime;
 
 #define PGA_GUARD_BEGIN \
 	do { \
@@ -130,43 +156,42 @@ pga_pending_slot(void)
 }
 
 /*
- * Local wall-clock hour and day of week of a timestamp, in the session time
- * zone.  The result is cached for the current hour to keep the hooks cheap.
+ * Local wall-clock time of a timestamp, in the session time zone.  All
+ * fields but the minute are cached for the current hour to keep the hooks
+ * cheap; the minute is derived from the offset into that hour.
  */
 static void
-pga_local_time(TimestampTz ts, int *hour, int *dow)
+pga_local_time(TimestampTz ts, PgaLocalTime *lt)
 {
 	static TimestampTz hour_start = 0;
 	static TimestampTz hour_end = 0;
-	static int	c_hour = -1;
-	static int	c_dow = -1;
+	static PgaLocalTime cached_lt = {-1};
 	static pg_tz *c_tz = NULL;
 	struct pg_tm tm;
 	fsec_t		fsec;
 	int			tz;
 
-	if (ts >= hour_start && ts < hour_end && c_tz == session_timezone)
+	if (!(ts >= hour_start && ts < hour_end && c_tz == session_timezone))
 	{
-		*hour = c_hour;
-		*dow = c_dow;
-		return;
+		if (timestamp2tm(ts, &tz, &tm, &fsec, NULL, NULL) != 0)
+		{
+			memset(lt, 0, sizeof(*lt));
+			lt->hour = -1;
+			return;
+		}
+
+		cached_lt.hour = tm.tm_hour;
+		cached_lt.day = date2j(tm.tm_year, tm.tm_mon, tm.tm_mday);
+		cached_lt.dow = j2day(cached_lt.day);
+		cached_lt.mon = tm.tm_mon;
+		cached_lt.mday = tm.tm_mday;
+		c_tz = session_timezone;
+		hour_start = ts - ((int64) tm.tm_min * SECS_PER_MINUTE + tm.tm_sec) * USECS_PER_SEC - fsec;
+		hour_end = hour_start + USECS_PER_HOUR;
 	}
 
-	if (timestamp2tm(ts, &tz, &tm, &fsec, NULL, NULL) != 0)
-	{
-		*hour = -1;
-		*dow = -1;
-		return;
-	}
-
-	c_hour = tm.tm_hour;
-	c_dow = j2day(date2j(tm.tm_year, tm.tm_mon, tm.tm_mday));
-	c_tz = session_timezone;
-	hour_start = ts - ((int64) tm.tm_min * SECS_PER_MINUTE + tm.tm_sec) * USECS_PER_SEC - fsec;
-	hour_end = hour_start + USECS_PER_HOUR;
-
-	*hour = c_hour;
-	*dow = c_dow;
+	*lt = cached_lt;
+	lt->minute = (int) ((ts - hour_start) / USECS_PER_MINUTE);
 }
 
 /* time of the current statement, faked in test builds */
@@ -182,24 +207,26 @@ pga_statement_time(void)
 
 /* Statement started between 03:00 and 05:00 local time. */
 static bool
-pga_is_night(void)
+pga_is_night(const PgaLocalTime *lt)
 {
-	int			hour,
-				dow;
+	return lt->hour >= 3 && lt->hour < 5;
+}
 
-	pga_local_time(pga_statement_time(), &hour, &dow);
-	return hour >= 3 && hour < 5;
+/* Statement started in the very first minute of a year, local time. */
+static bool
+pga_is_new_year(const PgaLocalTime *lt)
+{
+	return lt->mon == 1 && lt->mday == 1 && lt->hour == 0 && lt->minute == 0;
 }
 
 /* Statement started on a Friday at 18:00 or later, local time. */
 static bool
 pga_is_friday_evening(void)
 {
-	int			hour,
-				dow;
+	PgaLocalTime lt;
 
-	pga_local_time(pga_statement_time(), &hour, &dow);
-	return dow == 5 && hour >= 18;
+	pga_local_time(pga_statement_time(), &lt);
+	return lt.dow == 5 && lt.hour >= 18;
 }
 
 /* One of the JSONB operators counted by jsonb_ops. */
@@ -250,10 +277,56 @@ pga_is_null_equality(OpExpr *op)
 	return result;
 }
 
+/* Range table entry of a plain table reference in a join tree, or NULL. */
+static RangeTblEntry *
+pga_plain_relation(Query *q, Node *item)
+{
+	RangeTblEntry *rte;
+
+	if (item == NULL || !IsA(item, RangeTblRef))
+		return NULL;
+	rte = rt_fetch(((RangeTblRef *) item)->rtindex, q->rtable);
+	return (rte->rtekind == RTE_RELATION && !rte->lateral) ? rte : NULL;
+}
+
+/*
+ * Does the query join tables without any condition at all: "FROM a, b" or
+ * "a CROSS JOIN b" with no WHERE clause?  Only plain tables count, so that
+ * "FROM t, LATERAL f(t.x)" or "FROM t, generate_series(...)" do not.
+ */
+static bool
+pga_is_cartesian(Query *q)
+{
+	ListCell   *lc;
+	int			tables = 0;
+
+	if (q->jointree == NULL || q->jointree->quals != NULL)
+		return false;
+
+	foreach(lc, q->jointree->fromlist)
+	{
+		Node	   *item = (Node *) lfirst(lc);
+
+		if (pga_plain_relation(q, item) != NULL)
+			tables++;
+		else if (IsA(item, JoinExpr))
+		{
+			JoinExpr   *j = (JoinExpr *) item;
+
+			if (j->jointype == JOIN_INNER && j->quals == NULL &&
+				pga_plain_relation(q, j->larg) != NULL &&
+				pga_plain_relation(q, j->rarg) != NULL)
+				return true;
+		}
+	}
+	return tables >= 2;
+}
+
 /*
  * Walk the analyzed query, including subqueries, CTEs and sublinks, and
  * collect the features counted by jsonb_ops, join_count_max, null_eq,
- * terminate_backend and the per-query flags.
+ * terminate_backend, listen_notify, cartesian_product, not_in_subquery and
+ * the per-query flags.
  */
 static bool
 pga_walker(Node *node, void *context)
@@ -274,6 +347,24 @@ pga_walker(Node *node, void *context)
 			ctx->flags |= PF_RECURSIVE;
 		if (q->hasWindowFuncs)
 			ctx->flags |= PF_WINDOW;
+		if (q->onConflict != NULL)
+			ctx->flags |= PF_UPSERT;
+		if (q->returningList != NIL)
+			ctx->flags |= PF_RETURNING;
+		if (q->commandType == CMD_MERGE)
+			ctx->flags |= PF_MERGE;
+		if (q->groupingSets != NIL)
+			ctx->flags |= PF_GROUPING;
+		if (pga_is_cartesian(q))
+			ctx->cartesian++;
+
+		foreach(lc, q->rowMarks)
+		{
+			RowMarkClause *rc = (RowMarkClause *) lfirst(lc);
+
+			if (rc->waitPolicy == LockWaitSkip)
+				ctx->flags |= PF_SKIP_LOCKED;
+		}
 
 		foreach(lc, q->rtable)
 		{
@@ -299,8 +390,20 @@ pga_walker(Node *node, void *context)
 	}
 	else if (IsA(node, FuncExpr))
 	{
-		if (((FuncExpr *) node)->funcid == F_PG_TERMINATE_BACKEND)
+		Oid			funcid = ((FuncExpr *) node)->funcid;
+
+		if (funcid == F_PG_TERMINATE_BACKEND)
 			ctx->terminate++;
+		else if (funcid == F_PG_NOTIFY)
+			ctx->notify++;
+	}
+	else if (IsA(node, BoolExpr) && ((BoolExpr *) node)->boolop == NOT_EXPR)
+	{
+		Node	   *arg = (Node *) linitial(((BoolExpr *) node)->args);
+
+		/* "x NOT IN (SELECT ...)" is parsed as NOT (x = ANY (SELECT ...)) */
+		if (IsA(arg, SubLink) && ((SubLink *) arg)->subLinkType == ANY_SUBLINK)
+			ctx->not_in++;
 	}
 
 	return expression_tree_walker(node, pga_walker, context);
@@ -374,9 +477,16 @@ pga_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate)
 
 		if (pga_sync_role())
 		{
+			PgaLocalTime lt;
+
 			p->valid = true;
-			if (pga_is_night())
+			pga_local_time(pga_statement_time(), &lt);
+			if (pga_is_night(&lt))
 				p->flags |= PF_NIGHT;
+			if (pga_is_new_year(&lt))
+				p->flags |= PF_NEW_YEAR;
+			if (lt.hour >= 0)
+				p->day = lt.day;
 
 			if (query->commandType != CMD_UTILITY)
 			{
@@ -389,6 +499,7 @@ pga_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate)
 				p->joins = ctx.joins;
 				p->jsonb_ops = ctx.jsonb_ops;
 				p->terminate = ctx.terminate;
+				p->notify = ctx.notify;
 				if (query->commandType == CMD_SELECT)
 					p->flags |= PF_SELECT;
 
@@ -399,6 +510,10 @@ pga_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate)
 					pga_count(PGA_C_DELETE_NO_WHERE, 1);
 				if (ctx.null_eq > 0)
 					pga_count(PGA_C_NULL_EQ, 1);
+				if (ctx.cartesian > 0)
+					pga_count(PGA_C_CARTESIAN_PRODUCT, 1);
+				if (ctx.not_in > 0)
+					pga_count(PGA_C_NOT_IN_SUBQUERY, 1);
 				if (query->commandType == CMD_SELECT &&
 					pga_has_select_star(pstate, query))
 					pga_count(PGA_C_SELECT_STAR, 1);
@@ -433,6 +548,22 @@ pga_apply_pending(PgaPending *p)
 		pga_count_max(PGA_C_JOIN_COUNT_MAX, p->joins);
 	if (p->terminate > 0)
 		pga_count(PGA_C_TERMINATE_BACKEND, p->terminate);
+	if (p->flags & PF_UPSERT)
+		pga_count(PGA_C_UPSERT, 1);
+	if (p->flags & PF_RETURNING)
+		pga_count(PGA_C_RETURNING, 1);
+	if (p->flags & PF_MERGE)
+		pga_count(PGA_C_MERGE, 1);
+	if (p->flags & PF_SKIP_LOCKED)
+		pga_count(PGA_C_SKIP_LOCKED, 1);
+	if (p->flags & PF_GROUPING)
+		pga_count(PGA_C_GROUPING_SETS, 1);
+	if (p->flags & PF_NEW_YEAR)
+		pga_count(PGA_C_NEW_YEAR_QUERY, 1);
+	if (p->notify > 0)
+		pga_count(PGA_C_LISTEN_NOTIFY, p->notify);
+	if (p->day > 0)
+		pga_note_active_day(p->day);
 
 	p->valid = false;
 }
@@ -527,6 +658,12 @@ pga_ExecutorEnd(QueryDesc *queryDesc)
 					pga_count(PGA_C_SEQSCAN_BIG, 1);
 			}
 
+			/* rows returned by a SELECT, or affected by a DML statement */
+			if (queryDesc->estate != NULL && queryDesc->estate->es_processed > 0)
+				pga_count(PGA_C_ROWS_PROCESSED,
+						  (int64) Min(queryDesc->estate->es_processed,
+									  (uint64) PG_INT64_MAX));
+
 			if (nesting_level == 0)
 			{
 				TimestampTz now = GetCurrentTimestamp();
@@ -555,8 +692,8 @@ pga_ExecutorEnd(QueryDesc *queryDesc)
 typedef struct PgaUtilityEvents
 {
 	int			n;
-	PgaCounter	counters[4];
-	int64		amounts[4];
+	PgaCounter	counters[8];
+	int64		amounts[8];
 } PgaUtilityEvents;
 
 /* Remember a counter to bump after the utility command succeeds. */
@@ -588,12 +725,140 @@ pga_option_enabled(List *options, const char *name)
 }
 
 /*
+ * Does a name contain an emoji?  Only the common emoji blocks are checked:
+ * Miscellaneous Symbols and Dingbats (U+2600..U+27BF) and everything from
+ * Mahjong Tiles to Symbols and Pictographs Extended-A (U+1F000..U+1FAFF).
+ */
+static bool
+pga_has_emoji(const char *name)
+{
+	const unsigned char *p = (const unsigned char *) name;
+
+	if (name == NULL || GetDatabaseEncoding() != PG_UTF8)
+		return false;
+
+	while (*p)
+	{
+		int			len = pg_utf_mblen(p);
+		pg_wchar	cp;
+
+		if (len > 1 && pg_utf8_islegal(p, len))
+		{
+			cp = utf8_to_unicode(p);
+			if ((cp >= 0x2600 && cp <= 0x27BF) || (cp >= 0x1F000 && cp <= 0x1FAFF))
+				return true;
+		}
+		/* never step over the terminating zero */
+		for (int i = 0; i < len && *p; i++)
+			p++;
+	}
+	return false;
+}
+
+/*
+ * Was a part of the (possibly qualified) name that starts at "location" in
+ * the source text longer than NAMEDATALEN - 1 bytes?  The parser silently
+ * truncates such identifiers (with a NOTICE that never reaches the log, so
+ * emit_log_hook does not see it), and only the source text still has the
+ * full name.  The text is only inspected, never stored.
+ */
+static bool
+pga_name_truncated(const char *src, int location)
+{
+	const char *p;
+
+	if (src == NULL || location < 0 || (size_t) location >= strlen(src))
+		return false;
+
+	p = src + location;
+	for (;;)
+	{
+		int			len = 0;
+
+		if (*p == '"')
+		{
+			/* quoted identifier, "" stands for one double quote */
+			for (p++; *p; p++)
+			{
+				if (*p == '"')
+				{
+					if (p[1] != '"')
+						break;
+					p++;
+				}
+				len++;
+			}
+			if (*p != '"')
+				return false;	/* unterminated: not our business */
+			p++;
+		}
+		else
+		{
+			while (*p && (isalnum((unsigned char) *p) || *p == '_' || *p == '$' ||
+						  IS_HIGHBIT_SET(*p)))
+			{
+				p++;
+				len++;
+			}
+		}
+
+		if (len >= NAMEDATALEN)
+			return true;
+
+		while (isspace((unsigned char) *p))
+			p++;
+		if (*p != '.')
+			return false;
+		p++;
+		while (isspace((unsigned char) *p))
+			p++;
+	}
+}
+
+/* Count a table name with an emoji, or one that got truncated. */
+static void
+pga_check_table_name(RangeVar *rv, const char *queryString,
+					 PgaUtilityEvents *ev)
+{
+	if (rv == NULL)
+		return;
+	if (pga_has_emoji(rv->relname))
+		pga_add_event(ev, PGA_C_EMOJI_NAME, 1);
+	if (pga_name_truncated(queryString, rv->location))
+		pga_add_event(ev, PGA_C_LONG_NAME, 1);
+}
+
+/* ALTER SYSTEM SET pg_achievements.enabled = off (or false, 0, ...) */
+static bool
+pga_is_disable_attempt(AlterSystemStmt *stmt)
+{
+	VariableSetStmt *set = stmt->setstmt;
+	A_Const    *con;
+	bool		value;
+
+	if (set == NULL || set->kind != VAR_SET_VALUE || set->name == NULL ||
+		pg_strcasecmp(set->name, "pg_achievements.enabled") != 0 ||
+		list_length(set->args) != 1 || !IsA(linitial(set->args), A_Const))
+		return false;
+
+	con = (A_Const *) linitial(set->args);
+	if (con->isnull)
+		return false;
+	if (IsA(&con->val, String))
+		return parse_bool(strVal(&con->val), &value) && !value;
+	if (IsA(&con->val, Integer))
+		return intVal(&con->val) == 0;
+	return false;
+}
+
+/*
  * Decide, before execution, which counters a utility command bumps.  It
  * must run before the command: IF EXISTS checks need the catalog state
  * before the DROP, and the parse tree may be gone afterwards.
  */
 static void
-pga_classify_utility(Node *parsetree, PgaUtilityEvents *ev)
+pga_classify_utility(Node *parsetree, const char *queryString,
+					 PgaUtilityEvents *ev)
 {
 	switch (nodeTag(parsetree))
 	{
@@ -614,12 +879,20 @@ pga_classify_utility(Node *parsetree, PgaUtilityEvents *ev)
 				pga_add_event(ev, PGA_C_CREATE_TABLE, 1);
 				if (stmt->partspec != NULL || stmt->partbound != NULL)
 					pga_add_event(ev, PGA_C_PARTITION_CREATE, 1);
+				pga_check_table_name(stmt->relation, queryString, ev);
 			}
 			break;
 
 		case T_CreateTableAsStmt:
-			if (((CreateTableAsStmt *) parsetree)->objtype == OBJECT_TABLE)
-				pga_add_event(ev, PGA_C_CREATE_TABLE, 1);
+			{
+				CreateTableAsStmt *stmt = (CreateTableAsStmt *) parsetree;
+
+				if (stmt->objtype == OBJECT_TABLE)
+				{
+					pga_add_event(ev, PGA_C_CREATE_TABLE, 1);
+					pga_check_table_name(stmt->into->rel, queryString, ev);
+				}
+			}
 			break;
 
 		case T_IndexStmt:
@@ -685,6 +958,46 @@ pga_classify_utility(Node *parsetree, PgaUtilityEvents *ev)
 			}
 			break;
 
+		case T_TransactionStmt:
+			{
+				TransactionStmt *stmt = (TransactionStmt *) parsetree;
+
+				/* a ROLLBACK outside of a transaction block only warns */
+				if (stmt->kind == TRANS_STMT_ROLLBACK && IsTransactionBlock())
+					pga_add_event(ev, PGA_C_ROLLBACK, 1);
+				else if (stmt->kind == TRANS_STMT_ROLLBACK_TO)
+					pga_add_event(ev, PGA_C_ROLLBACK_TO_SAVEPOINT, 1);
+			}
+			break;
+
+		case T_CommentStmt:
+			pga_add_event(ev, PGA_C_COMMENT_ON, 1);
+			break;
+
+		case T_RefreshMatViewStmt:
+			if (((RefreshMatViewStmt *) parsetree)->concurrent)
+				pga_add_event(ev, PGA_C_REFRESH_MATVIEW_CONCURRENTLY, 1);
+			break;
+
+		case T_CreatePolicyStmt:
+			pga_add_event(ev, PGA_C_CREATE_POLICY, 1);
+			break;
+
+		case T_ListenStmt:
+		case T_NotifyStmt:
+			pga_add_event(ev, PGA_C_LISTEN_NOTIFY, 1);
+			break;
+
+		case T_LockStmt:
+			if (((LockStmt *) parsetree)->mode == AccessExclusiveLock)
+				pga_add_event(ev, PGA_C_LOCK_EXCLUSIVE, 1);
+			break;
+
+		case T_AlterSystemStmt:
+			if (pga_is_disable_attempt((AlterSystemStmt *) parsetree))
+				pga_add_event(ev, PGA_C_DISABLE_ATTEMPT, 1);
+			break;
+
 		default:
 			break;
 	}
@@ -708,7 +1021,7 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 	{
 		PGA_GUARD_BEGIN;
 		{
-			pga_classify_utility(pstmt->utilityStmt, &ev);
+			pga_classify_utility(pstmt->utilityStmt, queryString, &ev);
 			track = true;
 		}
 		PGA_GUARD_END;
@@ -751,8 +1064,8 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 }
 
 /*
- * emit_log_hook: count syntax errors, deadlocks and serialization
- * failures of this backend.
+ * emit_log_hook: count syntax errors, deadlocks, serialization failures,
+ * missing tables and divisions by zero of this backend.
  */
 static void
 pga_emit_log(ErrorData *edata)

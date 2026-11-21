@@ -19,13 +19,20 @@
 #include "storage/lwlock.h"
 #include "storage/spin.h"
 
-#define PGA_VERSION			"1.0"
+#define PGA_VERSION			"1.1"
 #define PGA_SCHEMA			"achievements"
 #define PGA_EXTNAME			"pg_achievements"
 
 /*
  * Counter list.  Single source of truth: the enum, the SQL-visible keys and
- * the aggregation type are all generated from this table.
+ * the aggregation type are all generated from this table.  New counters go
+ * to the end; the keys are stored in achievements.counters, so a key must
+ * never be renamed.
+ *
+ * streak_state is internal bookkeeping of streak_days: the local day number
+ * of the last active day in the high 32 bits and the length of the current
+ * run of consecutive days in the low 32 bits.  It only grows, so it can be
+ * merged like any other "max" counter (see pga_note_active_day).
  */
 typedef enum PgaCounterKind
 {
@@ -68,7 +75,31 @@ typedef enum PgaCounterKind
 	X(DROP_DATABASE,			"drop_database",			PGA_SUM) \
 	X(TRUNCATE,					"truncate",					PGA_SUM) \
 	X(VACUUM_FULL,				"vacuum_full",				PGA_SUM) \
-	X(TERMINATE_BACKEND,		"terminate_backend",		PGA_SUM)
+	X(TERMINATE_BACKEND,		"terminate_backend",		PGA_SUM) \
+	/* added in 1.1 */ \
+	X(ROLLBACK,					"rollback",					PGA_SUM) \
+	X(ROLLBACK_TO_SAVEPOINT,	"rollback_to_savepoint",	PGA_SUM) \
+	X(UPSERT,					"upsert",					PGA_SUM) \
+	X(RETURNING,				"returning",				PGA_SUM) \
+	X(COMMENT_ON,				"comment_on",				PGA_SUM) \
+	X(MERGE,					"merge",					PGA_SUM) \
+	X(REFRESH_MATVIEW_CONCURRENTLY, "refresh_matview_concurrently", PGA_SUM) \
+	X(SKIP_LOCKED,				"skip_locked",				PGA_SUM) \
+	X(GROUPING_SETS,			"grouping_sets",			PGA_SUM) \
+	X(CREATE_POLICY,			"create_policy",			PGA_SUM) \
+	X(LISTEN_NOTIFY,			"listen_notify",			PGA_SUM) \
+	X(ERR_UNDEFINED_TABLE,		"err_undefined_table",		PGA_SUM) \
+	X(ERR_DIVISION_BY_ZERO,		"err_division_by_zero",		PGA_SUM) \
+	X(CARTESIAN_PRODUCT,		"cartesian_product",		PGA_SUM) \
+	X(NOT_IN_SUBQUERY,			"not_in_subquery",			PGA_SUM) \
+	X(LOCK_EXCLUSIVE,			"lock_exclusive",			PGA_SUM) \
+	X(EMOJI_NAME,				"emoji_name",				PGA_SUM) \
+	X(LONG_NAME,				"long_name",				PGA_SUM) \
+	X(NEW_YEAR_QUERY,			"new_year_query",			PGA_SUM) \
+	X(DISABLE_ATTEMPT,			"disable_attempt",			PGA_SUM) \
+	X(STREAK_STATE,				"streak_state",				PGA_MAX) \
+	X(STREAK_DAYS,				"streak_days",				PGA_MAX) \
+	X(ROWS_PROCESSED,			"rows_processed",			PGA_SUM)
 
 #define PGA_ENUM_ENTRY(id, key, kind) PGA_C_##id,
 typedef enum PgaCounter
@@ -251,6 +282,7 @@ extern int64 pga_duration_shift_us(void);
 extern void pga_count(PgaCounter c, int64 n);
 extern void pga_count_max(PgaCounter c, int64 v);
 extern void pga_count_error(int sqlerrcode);
+extern void pga_note_active_day(int32 day);
 extern void pga_flush_local(bool check);
 extern void pga_invalidate_cache(void);
 extern void pga_maybe_flush_by_time(TimestampTz now);

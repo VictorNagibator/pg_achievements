@@ -149,6 +149,8 @@ DELETE FROM t2;
 NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE, Part 2 (+50)
 DETAIL:  DELETE without a WHERE clause. Total score: 215.
 ROLLBACK;
+NOTICE:  [BRONZE] Achievement unlocked: Ctrl+Z (+10)
+DETAIL:  Roll back a transaction with ROLLBACK. Total score: 225.
 UPDATE t1 SET a = 1 / 0;
 ERROR:  division by zero
 -- with WHERE: nothing
@@ -157,10 +159,115 @@ UPDATE t1 SET a = a WHERE id = 1;
 SELECT pg_terminate_backend(-1);
 WARNING:  PID -1 is not a PostgreSQL backend process
 NOTICE:  [GOLD] Achievement unlocked: Executioner (+50)
-DETAIL:  Call pg_terminate_backend. Total score: 265.
+DETAIL:  Call pg_terminate_backend. Total score: 275.
  pg_terminate_backend 
 ----------------------
  f
+(1 row)
+
+-- upsert and returning; DELETE ... RETURNING * is not a SELECT *
+INSERT INTO t1 VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
+NOTICE:  [BRONZE] Achievement unlocked: Upsert Happens (+10)
+DETAIL:  Run INSERT ... ON CONFLICT. Total score: 285.
+INSERT INTO t1 VALUES (11, 11) ON CONFLICT (id) DO UPDATE SET a = EXCLUDED.a RETURNING id;
+NOTICE:  [BRONZE] Achievement unlocked: Returning Hero (+10)
+DETAIL:  Use RETURNING in a data-modifying statement. Total score: 295.
+ id 
+----
+ 11
+(1 row)
+
+DELETE FROM t1 WHERE id = 11 RETURNING *;
+ id | a  | j 
+----+----+---
+ 11 | 11 | 
+(1 row)
+
+-- merge
+MERGE INTO t2 USING t1 ON t2.id = t1.id WHEN NOT MATCHED THEN DO NOTHING;
+NOTICE:  [SILVER] Achievement unlocked: Merge Conflict (+25)
+DETAIL:  Run a MERGE statement. Total score: 320.
+-- skip_locked: NOWAIT does not count
+SELECT id FROM t1 WHERE id = 1 FOR UPDATE SKIP LOCKED;
+NOTICE:  [SILVER] Achievement unlocked: Queue Master (+25)
+DETAIL:  Lock rows with SKIP LOCKED. Total score: 345.
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM t1 WHERE id = 1 FOR UPDATE NOWAIT;
+ id 
+----
+  1
+(1 row)
+
+-- grouping_sets
+SELECT a, count(*) FROM t1 WHERE id = 1 GROUP BY CUBE (a) ORDER BY a;
+NOTICE:  [SILVER] Achievement unlocked: Cube Master (+25)
+DETAIL:  Use GROUPING SETS, ROLLUP or CUBE. Total score: 370.
+ a | count 
+---+-------
+ 1 |     1
+   |     1
+(2 rows)
+
+-- cartesian_product: tables joined without any condition
+SELECT count(*) FROM t1, t2;
+NOTICE:  [GOLD] Achievement unlocked: Cartesian Explosion (+50)
+DETAIL:  Join tables without any join condition. Total score: 420.
+ count 
+-------
+   100
+(1 row)
+
+SELECT count(*) FROM t1 CROSS JOIN t2;
+ count 
+-------
+   100
+(1 row)
+
+-- with a condition, or with a function instead of a second table: nothing
+SELECT count(*) FROM t1, t2 WHERE t2.t1_id = t1.id;
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM t1, generate_series(1, 2);
+ count 
+-------
+    20
+(1 row)
+
+-- not_in_subquery: only NOT IN with a subquery
+SELECT count(*) FROM t1 WHERE id NOT IN (SELECT t1_id FROM t2);
+NOTICE:  [GOLD] Achievement unlocked: NOT IN Trouble (+50)
+DETAIL:  Use NOT IN with a subquery (mind the NULLs). Total score: 470.
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM t1 WHERE id NOT IN (1, 2);
+ count 
+-------
+     8
+(1 row)
+
+SELECT count(*) FROM t1 WHERE id IN (SELECT t1_id FROM t2);
+ count 
+-------
+    10
+(1 row)
+
+-- listen_notify via the function
+SELECT pg_notify('t_analyze', 'hi');
+NOTICE:  [SILVER] Achievement unlocked: Are You Listening? (+25)
+DETAIL:  Use LISTEN, NOTIFY or pg_notify(). Total score: 495.
+ pg_notify 
+-----------
+ 
 (1 row)
 
 -- a failed query does not count stmt_select
@@ -170,7 +277,7 @@ ERROR:  division by zero
 SET pg_achievements.test_now = '2026-11-18 03:30:00-08';
 SELECT 2 AS night;
 NOTICE:  [BRONZE] Achievement unlocked: Night Owl (+10)
-DETAIL:  Run a query between 03:00 and 05:00. Total score: 275.
+DETAIL:  Run a query between 03:00 and 05:00. Total score: 505.
  night 
 -------
      2
@@ -185,25 +292,101 @@ SELECT 3 AS day;
 (1 row)
 
 RESET timezone;
+-- streak_days: active days in a row, a gap starts a new run; the first
+-- day is the configured test_now (2026-11-18), which is no run with these
+SET pg_achievements.test_now = '2026-12-30 12:00:00-08';
+SELECT 'day 1' AS streak;
+ streak 
+--------
+ day 1
+(1 row)
+
+SELECT 'day 1 again' AS streak;
+   streak    
+-------------
+ day 1 again
+(1 row)
+
+SET pg_achievements.test_now = '2026-12-31 12:00:00-08';
+SELECT 'day 2' AS streak;
+ streak 
+--------
+ day 2
+(1 row)
+
+-- new_year_query: the first minute of the year, local time
+-- (the SET right after it also runs in that minute and counts too)
+SET pg_achievements.test_now = '2027-01-01 00:00:30-08';
+SELECT 'day 3, happy new year' AS streak;
+NOTICE:  [GOLD] Achievement unlocked: Happy New Query (+50)
+DETAIL:  Run a query in the first minute of a new year. Total score: 555.
+        streak         
+-----------------------
+ day 3, happy new year
+(1 row)
+
+SET pg_achievements.test_now = '2027-01-01 00:01:00-08';
+SELECT 'one minute late' AS streak;
+     streak      
+-----------------
+ one minute late
+(1 row)
+
+SET pg_achievements.test_now = '2027-01-03 12:00:00-08';
+SELECT 'a gap: day 1 again' AS streak;
+       streak       
+--------------------
+ a gap: day 1 again
+(1 row)
+
+-- back in time: ignored
 RESET pg_achievements.test_now;
+SELECT 'the past' AS streak;
+  streak  
+----------
+ the past
+(1 row)
+
+-- streak_state packs the last active day and the current run
+SELECT to_char(to_date((achievements.counter('streak_state') >> 32)::text, 'J'), 'YYYY-MM-DD') AS last_day,
+       achievements.counter('streak_state') & 4294967295 AS run,
+       achievements.counter('streak_days') AS longest;
+  last_day  | run | longest 
+------------+-----+---------
+ 2027-01-03 |   1 |       3
+(1 row)
+
 \set QUIET off
 SELECT * FROM pga_counters();
-        key        | value 
--------------------+-------
- cte_any           |     2
- cte_recursive     |     1
- delete_no_where   |     1
- join_count_max    |     2
- jsonb_ops         |     5
- lateral           |     1
- night_query       |     3
- null_eq           |     1
- select_star       |     4
- stmt_select       |    20
- terminate_backend |     1
- update_no_where   |     2
- window_func       |     1
-(13 rows)
+         key          | value 
+----------------------+-------
+ cartesian_product    |     2
+ cte_any              |     2
+ cte_recursive        |     1
+ delete_no_where      |     1
+ err_division_by_zero |     2
+ grouping_sets        |     1
+ join_count_max       |     2
+ jsonb_ops            |     5
+ lateral              |     1
+ listen_notify        |     1
+ merge                |     1
+ new_year_query       |     2
+ night_query          |     3
+ not_in_subquery      |     1
+ null_eq              |     1
+ returning            |     2
+ rollback             |     1
+ rows_processed       |    63
+ select_star          |     4
+ skip_locked          |     1
+ stmt_select          |    39
+ streak_days          |     3
+ terminate_backend    |     1
+ update_no_where      |     2
+ upsert               |     2
+ window_func          |     1
+(26 rows)
 
 RESET ROLE;
 RESET

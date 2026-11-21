@@ -11,8 +11,13 @@ SET pg_achievements.notify = off;
 SELEC 1;
 SELECT FROM WHERE;
 
--- other errors do not count
+-- err_undefined_table, err_division_by_zero
+SELECT * FROM no_such_table;
 SELECT 1 / 0;
+SELECT 1 % 0;
+
+-- other errors do not count
+SELECT 'x'::int;
 
 -- deadlock and serialization failure, raised by hand; real ones are
 -- covered by the TAP tests

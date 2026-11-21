@@ -33,22 +33,32 @@ RESET ROLE;
 -- my: t_ddl holds a secret achievement (yolo)
 SET ROLE t_ddl;
 SELECT tier, title, points, code FROM achievements.my ORDER BY tier, code;
-   tier   |        title        | points |        code        
-----------+---------------------+--------+--------------------
- bronze   | Investigator        |     10 | first_explain
- bronze   | Functionary         |     10 | first_function
- bronze   | Indexer             |     10 | first_index
- bronze   | First Table         |     10 | first_table
- bronze   | Hello, World        |     10 | hello_world
- silver   | Detective           |     25 | detective
- silver   | Divide and Conquer  |     25 | divide_and_conquer
- silver   | No Locks            |     25 | no_locks
- silver   | Trigger Happy       |     25 | trigger_happy
- gold     | Clean Slate         |     50 | clean_slate
- gold     | Friday Deploy       |     50 | friday_deploy
- gold     | Master of the Table |     50 | table_owner
- platinum | You Only Live Once  |    100 | yolo
-(13 rows)
+  tier  |        title        | points |        code        
+--------+---------------------+--------+--------------------
+ bronze | Ctrl+Z              |     10 | ctrl_z
+ bronze | Investigator        |     10 | first_explain
+ bronze | Functionary         |     10 | first_function
+ bronze | Indexer             |     10 | first_index
+ bronze | First Table         |     10 | first_table
+ bronze | Hello, World        |     10 | hello_world
+ bronze | Self-Documenting    |     10 | self_documenting
+ silver | Are You Listening?  |     25 | are_you_listening
+ silver | Big Brother         |     25 | big_brother
+ silver | Detective           |     25 | detective
+ silver | Divide and Conquer  |     25 | divide_and_conquer
+ silver | Materialist         |     25 | materialist
+ silver | No Locks            |     25 | no_locks
+ silver | Save Point          |     25 | save_point
+ silver | Trigger Happy       |     25 | trigger_happy
+ gold   | Clean Slate         |     50 | clean_slate
+ gold   | Friday Deploy       |     50 | friday_deploy
+ gold   | Lock Hoarder        |     50 | lock_hoarder
+ gold   | Novelist            |     50 | novelist
+ gold   | Regret              |     50 | regret
+ gold   | Master of the Table |     50 | table_owner
+ gold   | Unicode Artist      |     50 | unicode_artist
+ gold   | You Only Live Once  |     50 | yolo
+(23 rows)
 
 -- progress: secret descriptions are hidden until unlocked
 SELECT code, description, threshold, current, unlocked
@@ -57,9 +67,9 @@ WHERE code IN ('yolo', 'time_machine', 'first_table', 'table_collector', 'gold_r
 ORDER BY code;
       code       |           description           | threshold | current | unlocked 
 -----------------+---------------------------------+-----------+---------+----------
- first_table     | Create your first table.        |         1 |       7 | t
+ first_table     | Create your first table.        |         1 |      12 | t
  gold_rush       | Collect every gold achievement. |           |         | f
- table_collector | Create 100 tables.              |       100 |       7 | f
+ table_collector | Create 100 tables.              |       100 |      12 | f
  time_machine    | ???                             |         1 |       0 | f
  yolo            | Drop a database.                |         1 |       1 | t
 (5 rows)
@@ -68,23 +78,27 @@ RESET ROLE;
 -- catalog_public hides every secret description
 SELECT code, title, description, tier, points
 FROM achievements.catalog_public WHERE secret ORDER BY code;
-     code      |       title        | description |   tier   | points 
----------------+--------------------+-------------+----------+--------
- marathon      | Marathon           | ???         | platinum |    100
- serial_killer | Serial Executioner | ???         | platinum |    100
- time_machine  | Time Machine       | ???         | platinum |    100
- yolo          | You Only Live Once | ???         | platinum |    100
-(4 rows)
+      code       |       title        | description | tier | points 
+-----------------+--------------------+-------------+------+--------
+ happy_new_query | Happy New Query    | ???         | gold |     50
+ marathon        | Marathon           | ???         | gold |     50
+ novelist        | Novelist           | ???         | gold |     50
+ regret          | Regret             | ???         | gold |     50
+ serial_killer   | Serial Executioner | ???         | gold |     50
+ time_machine    | Time Machine       | ???         | gold |     50
+ unicode_artist  | Unicode Artist     | ???         | gold |     50
+ yolo            | You Only Live Once | ???         | gold |     50
+(8 rows)
 
 -- leaderboard, then opt-out of t_err
 SELECT role_name, score, achievements, bronze, silver, gold, platinum
 FROM achievements.leaderboard WHERE role_name LIKE 't\_%' ORDER BY role_name;
  role_name | score | achievements | bronze | silver | gold | platinum 
 -----------+-------+--------------+--------+--------+------+----------
- t_analyze |   275 |           11 |      5 |      3 |    3 |        0
- t_ddl     |   400 |           13 |      5 |      4 |    3 |        1
+ t_analyze |   555 |           21 |      8 |      7 |    6 |        0
+ t_ddl     |   670 |           23 |      7 |      8 |    8 |        0
  t_err     |   110 |            3 |      1 |      0 |    2 |        0
- t_exec    |   285 |            5 |      1 |      1 |    1 |        2
+ t_exec    |   195 |            6 |      2 |      1 |    3 |        0
 (4 rows)
 
 ALTER ROLE t_err SET pg_achievements.opt_out = on;

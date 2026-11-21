@@ -185,7 +185,12 @@ SELECT achievements.define('truncator', 'Truncator', 'TRUNCATE 2 tables.', 'silv
 SELECT achievements.define('bad', 'Bad', 'Bad.', 'silver', 'no_such_counter', 2);
 ERROR:  unknown counter "no_such_counter"
 HINT:  See SELECT * FROM achievements._counter_keys().
-CONTEXT:  PL/pgSQL function achievements.define(text,text,text,achievements.tier,text,bigint) line 6 at RAISE
+CONTEXT:  PL/pgSQL function achievements.define(text,text,text,achievements.tier,text,bigint) line 11 at RAISE
+-- platinum is reserved for the builtin "collect everything" achievement
+SELECT achievements.define('shiny', 'Shiny', 'Shiny.', 'platinum', 'truncate', 1);
+ERROR:  the platinum tier is reserved for the builtin achievement "platinum_collection"
+HINT:  Use the bronze, silver or gold tier.
+CONTEXT:  PL/pgSQL function achievements.define(text,text,text,achievements.tier,text,bigint) line 4 at RAISE
 SELECT achievements.sync();
  sync 
 ------
@@ -201,19 +206,19 @@ SELECT code, points, builtin FROM achievements.catalog WHERE NOT builtin;
 SET ROLE t_fn;
 CREATE TABLE fn_t (id int);
 NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
-DETAIL:  Create your first table. Total score: 120.
+DETAIL:  Create your first table. Total score: 70.
 TRUNCATE fn_t;
 NOTICE:  [GOLD] Achievement unlocked: Clean Slate (+50)
-DETAIL:  TRUNCATE a table. Total score: 170.
+DETAIL:  TRUNCATE a table. Total score: 120.
 TRUNCATE fn_t;
 NOTICE:  [SILVER] Achievement unlocked: Truncator (+25)
-DETAIL:  TRUNCATE 2 tables. Total score: 195.
+DETAIL:  TRUNCATE 2 tables. Total score: 145.
 RESET ROLE;
 -- custom achievements do not change the meta ones
 SELECT count(*) FROM achievements.catalog WHERE builtin;
  count 
 -------
-    46
+    68
 (1 row)
 
 DELETE FROM achievements.catalog WHERE code = 'truncator';
@@ -249,7 +254,7 @@ DROP ROLE t_gone;
 SELECT count(*) FROM achievements.counters WHERE role_name = 't_gone';
  count 
 -------
-     1
+     4
 (1 row)
 
 SELECT achievements.forget_role('t_gone');

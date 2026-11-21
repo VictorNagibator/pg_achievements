@@ -70,10 +70,59 @@ SELECT 1 FROM a_t t0 JOIN a_t t1 USING (id) JOIN a_t t2 USING (id) JOIN a_t t3 U
   JOIN a_t t8 USING (id) JOIN a_t t9 USING (id) JOIN a_t t10 USING (id);
 SELECT format('CREATE TABLE a_many_%s ()', g) FROM generate_series(1, 100) g \gexec
 
--- platinum
 CREATE DATABASE a_db;
 DROP DATABASE a_db;
 SELECT 'DROP TABLE ' || string_agg(format('a_many_%s', g), ', ') FROM generate_series(1, 50) g \gexec
+
+-- added in 1.1; a billion rows would take too long here, so that one is
+-- granted by hand (before the end: a grant awards meta achievements quietly)
+SELECT achievements.grant('t_all', 'billionaire');
+BEGIN;
+ROLLBACK;
+INSERT INTO a_t VALUES (1) ON CONFLICT DO NOTHING;
+INSERT INTO a_t VALUES (2) RETURNING id;
+COMMENT ON TABLE a_t IS 'all of them';
+MERGE INTO a_t USING a_t s ON a_t.id = s.id WHEN MATCHED THEN DO NOTHING;
+BEGIN;
+SAVEPOINT s;
+ROLLBACK TO s;
+COMMIT;
+CREATE MATERIALIZED VIEW a_mv AS SELECT 1 AS id;
+CREATE UNIQUE INDEX ON a_mv (id);
+REFRESH MATERIALIZED VIEW CONCURRENTLY a_mv;
+SELECT id FROM a_t FOR UPDATE SKIP LOCKED;
+SELECT id, count(*) FROM a_t GROUP BY ROLLUP (id);
+CREATE POLICY a_pol ON a_t USING (true);
+NOTIFY a_chan;
+-- 60 failing statements: one short line each
+SET pg_achievements.notify = off;   -- see 04_errors
+\set ECHO none
+\set VERBOSITY terse
+SELECT 'SELECT * FROM a_missing' FROM generate_series(1, 50) \gexec
+SELECT 'SELECT 1 / 0' FROM generate_series(1, 10) \gexec
+\set VERBOSITY default
+\set ECHO all
+RESET pg_achievements.notify;
+SELECT count(*) FROM a_t, a_big;
+SELECT count(*) FROM a_t WHERE id NOT IN (SELECT id FROM a_big);
+BEGIN;
+LOCK TABLE a_t;
+COMMIT;
+CREATE TABLE "a 🐘" (id int);
+CREATE TABLE a_table_with_a_name_much_longer_than_sixty_three_bytes_believe_me (id int);
+SET pg_achievements.test_now = '2027-01-01 00:00:10-08';
+SELECT 'happy new year';
+RESET pg_achievements.test_now;
+ALTER SYSTEM SET pg_achievements.enabled = off;
+ALTER SYSTEM RESET pg_achievements.enabled;
+-- 30 days in a row; the last day completes every achievement
+\set ECHO none
+SELECT format('SET pg_achievements.test_now = %L',
+              '2027-02-01 12:00:00-08'::timestamptz + g * interval '1 day'),
+       'SELECT 1'
+FROM generate_series(1, 30) g \gexec
+\set ECHO all
+RESET pg_achievements.test_now;
 
 \o
 \set QUIET off

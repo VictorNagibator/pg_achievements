@@ -5,7 +5,7 @@ SELECT achievements.sync();
 
 SELECT achievements.version();
 
--- 35 counters, 46 achievements: 12 bronze, 14 silver, 12 gold, 8 platinum
+-- 58 counters, 68 achievements: 16 bronze, 21 silver, 30 gold, 1 platinum
 SELECT count(*) AS counters FROM achievements._counter_keys();
 SELECT tier, count(*), min(points), max(points)
 FROM achievements.catalog GROUP BY tier ORDER BY tier;
@@ -40,5 +40,6 @@ RETURNS TABLE (key text, value bigint) LANGUAGE sql AS $$
     SELECT k.key, achievements.counter(k.key)
     FROM achievements._counter_keys() k
     WHERE achievements.counter(k.key) <> 0
+      AND k.key <> 'streak_state'     -- packed day and run, see 01_analyze
     ORDER BY k.key
 $$;

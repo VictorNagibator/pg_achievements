@@ -55,6 +55,36 @@ UPDATE t1 SET a = a WHERE id = 1;
 -- terminate_backend (pid -1 does not exist, the call still succeeds)
 SELECT pg_terminate_backend(-1);
 
+-- upsert and returning; DELETE ... RETURNING * is not a SELECT *
+INSERT INTO t1 VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
+INSERT INTO t1 VALUES (11, 11) ON CONFLICT (id) DO UPDATE SET a = EXCLUDED.a RETURNING id;
+DELETE FROM t1 WHERE id = 11 RETURNING *;
+
+-- merge
+MERGE INTO t2 USING t1 ON t2.id = t1.id WHEN NOT MATCHED THEN DO NOTHING;
+
+-- skip_locked: NOWAIT does not count
+SELECT id FROM t1 WHERE id = 1 FOR UPDATE SKIP LOCKED;
+SELECT id FROM t1 WHERE id = 1 FOR UPDATE NOWAIT;
+
+-- grouping_sets
+SELECT a, count(*) FROM t1 WHERE id = 1 GROUP BY CUBE (a) ORDER BY a;
+
+-- cartesian_product: tables joined without any condition
+SELECT count(*) FROM t1, t2;
+SELECT count(*) FROM t1 CROSS JOIN t2;
+-- with a condition, or with a function instead of a second table: nothing
+SELECT count(*) FROM t1, t2 WHERE t2.t1_id = t1.id;
+SELECT count(*) FROM t1, generate_series(1, 2);
+
+-- not_in_subquery: only NOT IN with a subquery
+SELECT count(*) FROM t1 WHERE id NOT IN (SELECT t1_id FROM t2);
+SELECT count(*) FROM t1 WHERE id NOT IN (1, 2);
+SELECT count(*) FROM t1 WHERE id IN (SELECT t1_id FROM t2);
+
+-- listen_notify via the function
+SELECT pg_notify('t_analyze', 'hi');
+
 -- a failed query does not count stmt_select
 SELECT 1 / 0;
 
@@ -65,7 +95,29 @@ SELECT 2 AS night;
 SET timezone = 'Asia/Novosibirsk';  -- 18:30 there: not night
 SELECT 3 AS day;
 RESET timezone;
+
+-- streak_days: active days in a row, a gap starts a new run; the first
+-- day is the configured test_now (2026-11-18), which is no run with these
+SET pg_achievements.test_now = '2026-12-30 12:00:00-08';
+SELECT 'day 1' AS streak;
+SELECT 'day 1 again' AS streak;
+SET pg_achievements.test_now = '2026-12-31 12:00:00-08';
+SELECT 'day 2' AS streak;
+-- new_year_query: the first minute of the year, local time
+-- (the SET right after it also runs in that minute and counts too)
+SET pg_achievements.test_now = '2027-01-01 00:00:30-08';
+SELECT 'day 3, happy new year' AS streak;
+SET pg_achievements.test_now = '2027-01-01 00:01:00-08';
+SELECT 'one minute late' AS streak;
+SET pg_achievements.test_now = '2027-01-03 12:00:00-08';
+SELECT 'a gap: day 1 again' AS streak;
+-- back in time: ignored
 RESET pg_achievements.test_now;
+SELECT 'the past' AS streak;
+-- streak_state packs the last active day and the current run
+SELECT to_char(to_date((achievements.counter('streak_state') >> 32)::text, 'J'), 'YYYY-MM-DD') AS last_day,
+       achievements.counter('streak_state') & 4294967295 AS run,
+       achievements.counter('streak_days') AS longest;
 
 \set QUIET off
 SELECT * FROM pga_counters();

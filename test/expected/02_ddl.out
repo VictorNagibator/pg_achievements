@@ -53,15 +53,71 @@ NOTICE:  [GOLD] Achievement unlocked: Master of the Table (+50)
 DETAIL:  Run VACUUM FULL. Total score: 240.
 CREATE EXTENSION IF NOT EXISTS plpgsql;    -- exists: not counted
 NOTICE:  extension "plpgsql" already exists, skipping
+COMMENT ON TABLE d1 IS 'commented';
+NOTICE:  [BRONZE] Achievement unlocked: Self-Documenting (+10)
+DETAIL:  Describe an object with COMMENT ON. Total score: 250.
+CREATE POLICY d1_pol ON d1 USING (true);
+NOTICE:  [SILVER] Achievement unlocked: Big Brother (+25)
+DETAIL:  Create a row-level security policy. Total score: 275.
+CREATE MATERIALIZED VIEW d_mv AS SELECT 1 AS id;
+CREATE UNIQUE INDEX d_mv_id ON d_mv (id);
+REFRESH MATERIALIZED VIEW d_mv;               -- not concurrently: not counted
+REFRESH MATERIALIZED VIEW CONCURRENTLY d_mv;
+NOTICE:  [SILVER] Achievement unlocked: Materialist (+25)
+DETAIL:  Refresh a materialized view CONCURRENTLY. Total score: 300.
+LISTEN d_chan;
+NOTICE:  [SILVER] Achievement unlocked: Are You Listening? (+25)
+DETAIL:  Use LISTEN, NOTIFY or pg_notify(). Total score: 325.
+UNLISTEN d_chan;                              -- not counted
+NOTIFY d_other_chan;   -- nobody listens: no message with a PID in the output
+-- lock_exclusive: LOCK TABLE takes ACCESS EXCLUSIVE unless told otherwise
+BEGIN;
+LOCK TABLE d1 IN SHARE MODE;
+LOCK TABLE d1;
+NOTICE:  [GOLD] Achievement unlocked: Lock Hoarder (+50)
+DETAIL:  Take an ACCESS EXCLUSIVE lock with LOCK TABLE. Total score: 375.
+COMMIT;
+-- rollback and rollback_to_savepoint
+ROLLBACK;               -- no transaction: just a warning, not counted
+WARNING:  there is no transaction in progress
+BEGIN;
+SAVEPOINT s;
+ROLLBACK TO SAVEPOINT s;
+NOTICE:  [SILVER] Achievement unlocked: Save Point (+25)
+DETAIL:  Roll back to a savepoint. Total score: 400.
+ROLLBACK;
+NOTICE:  [BRONZE] Achievement unlocked: Ctrl+Z (+10)
+DETAIL:  Roll back a transaction with ROLLBACK. Total score: 410.
+-- emoji_name: an emoji, quoted or not; other non-ASCII letters do not count
+CREATE TABLE "elephant 🐘" (id int);
+NOTICE:  [GOLD] Achievement unlocked: Unicode Artist (+50)
+DETAIL:  Create a table with an emoji in its name. Total score: 460.
+CREATE TABLE d_🐘 AS SELECT 1 AS id;
+CREATE TABLE "naïve" (id int);
+-- long_name: the name is truncated to 63 bytes; exactly 63 is fine
+CREATE TABLE public.d_this_table_name_is_far_too_long_to_fit_into_sixty_three_bytes_ (id int);
+NOTICE:  identifier "d_this_table_name_is_far_too_long_to_fit_into_sixty_three_bytes_" will be truncated to "d_this_table_name_is_far_too_long_to_fit_into_sixty_three_bytes"
+NOTICE:  [GOLD] Achievement unlocked: Novelist (+50)
+DETAIL:  Name a table so long that PostgreSQL truncates the name. Total score: 510.
+CREATE TABLE d_this_table_name_is_exactly_sixty_three_bytes_long_believe_me_ (id int);
+-- disable_attempt: only switching pg_achievements.enabled off
+ALTER SYSTEM SET pg_achievements.enabled = on;
+ALTER SYSTEM SET pg_achievements.enabled = off;
+NOTICE:  [GOLD] Achievement unlocked: Regret (+50)
+DETAIL:  Try to switch achievements off with ALTER SYSTEM. Total score: 560.
+ALTER SYSTEM RESET pg_achievements.enabled;
 -- DROP TABLE counts every dropped table
-DROP TABLE d1, d2;
+DROP TABLE d1, d2, "elephant 🐘", d_🐘, "naïve",
+    d_this_table_name_is_far_too_long_to_fit_into_sixty_three_bytes,
+    d_this_table_name_is_exactly_sixty_three_bytes_long_believe_me_;
+DROP MATERIALIZED VIEW d_mv;
 DROP TABLE IF EXISTS d_missing;            -- nothing dropped
 NOTICE:  table "d_missing" does not exist, skipping
 DROP TABLE dp;
 CREATE DATABASE pga_drop_me;
 DROP DATABASE pga_drop_me;
-NOTICE:  [PLATINUM] Achievement unlocked: You Only Live Once (+100)
-DETAIL:  Drop a database. Total score: 340.
+NOTICE:  [GOLD] Achievement unlocked: You Only Live Once (+50)
+DETAIL:  Drop a database. Total score: 610.
 DROP DATABASE IF EXISTS pga_drop_me;       -- nothing dropped
 NOTICE:  database "pga_drop_me" does not exist, skipping
 -- DDL on Friday evening; Friday morning and Saturday do not count
@@ -72,10 +128,10 @@ CREATE TABLE saturday (id int);
 SET pg_achievements.test_now = '2026-11-20 18:30:00-08';
 CREATE TABLE fri_evening (id int);
 NOTICE:  [GOLD] Achievement unlocked: Friday Deploy (+50)
-DETAIL:  Run DDL on a Friday after 18:00. Total score: 390.
+DETAIL:  Run DDL on a Friday after 18:00. Total score: 660.
 SELECT 1 AS not_ddl;
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
-DETAIL:  Run your first SELECT. Total score: 400.
+DETAIL:  Run your first SELECT. Total score: 670.
  not_ddl 
 ---------
        1
@@ -85,24 +141,36 @@ RESET pg_achievements.test_now;
 DROP TABLE fri_morning, saturday, fri_evening;
 \set QUIET off
 SELECT * FROM pga_counters();
-            key            | value 
----------------------------+-------
- create_function           |     2
- create_index              |     2
- create_index_concurrently |     1
- create_table              |     7
- create_trigger            |     1
- ddl_friday_evening        |     1
- drop_database             |     1
- drop_table                |     6
- explain_analyze           |     1
- explain_any               |     2
- partition_create          |     2
- select_star               |     1
- stmt_select               |     1
- truncate                  |     1
- vacuum_full               |     1
-(15 rows)
+             key              | value 
+------------------------------+-------
+ comment_on                   |     1
+ create_function              |     2
+ create_index                 |     3
+ create_index_concurrently    |     1
+ create_policy                |     1
+ create_table                 |    12
+ create_trigger               |     1
+ ddl_friday_evening           |     1
+ disable_attempt              |     1
+ drop_database                |     1
+ drop_table                   |    11
+ emoji_name                   |     2
+ explain_analyze              |     1
+ explain_any                  |     2
+ listen_notify                |     2
+ lock_exclusive               |     1
+ long_name                    |     1
+ partition_create             |     2
+ refresh_matview_concurrently |     1
+ rollback                     |     1
+ rollback_to_savepoint        |     1
+ rows_processed               |     1
+ select_star                  |     1
+ stmt_select                  |     1
+ streak_days                  |     2
+ truncate                     |     1
+ vacuum_full                  |     1
+(27 rows)
 
 RESET ROLE;
 RESET

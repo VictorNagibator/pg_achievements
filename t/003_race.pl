@@ -35,11 +35,14 @@ is($node->safe_psql('postgres',
 	q{SELECT code || ':' || count(*) FROM achievements.awarded
 	  WHERE role_name = 'racer' GROUP BY code ORDER BY code}),
 	"forgot_where:1\nwelcome:1", 'each achievement stored once');
-# pgbench opens one extra connection before starting the clients
+# pgbench opens one extra connection before starting the clients; the 50
+# sessions all start the same day, which makes a run of one day, not 50
+# (streak_state packs the date of today and is left out)
 is($node->safe_psql('postgres',
 	q{SELECT counter_key || '=' || value FROM achievements.counters
-	  WHERE role_name = 'racer' ORDER BY counter_key}),
-	"connect=51\nupdate_no_where=50", 'all events counted');
+	  WHERE role_name = 'racer' AND counter_key <> 'streak_state'
+	  ORDER BY counter_key}),
+	"connect=51\nstreak_days=1\nupdate_no_where=50", 'all events counted');
 
 $node->stop;
 done_testing();

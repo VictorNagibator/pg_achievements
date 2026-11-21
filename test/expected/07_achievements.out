@@ -1108,61 +1108,61 @@ RESET pg_achievements.test_now;
 SELECT 1 FROM a_t WHERE id = NULL;
 NOTICE:  [BRONZE] Achievement unlocked: NULL Is Not Equal to NULL (+10)
 DETAIL:  Compare with = NULL instead of IS NULL. Total score: 195.
-NOTICE:  [SILVER] Achievement unlocked: Collector (+25)
-DETAIL:  Collect every bronze achievement. Total score: 220.
 -- silver
 EXPLAIN ANALYZE SELECT 1;
 NOTICE:  [SILVER] Achievement unlocked: Detective (+25)
-DETAIL:  Run EXPLAIN ANALYZE. Total score: 245.
+DETAIL:  Run EXPLAIN ANALYZE. Total score: 220.
 WITH RECURSIVE r AS (SELECT 1 UNION SELECT 1 FROM r) SELECT * FROM r;
 NOTICE:  [SILVER] Achievement unlocked: Recursion: See Recursion (+25)
-DETAIL:  Run a WITH RECURSIVE query. Total score: 270.
+DETAIL:  Run a WITH RECURSIVE query. Total score: 245.
 SELECT row_number() OVER () FROM a_t;
 NOTICE:  [SILVER] Achievement unlocked: Open Window (+25)
-DETAIL:  Use a window function. Total score: 295.
+DETAIL:  Use a window function. Total score: 270.
 SELECT * FROM a_t, LATERAL (SELECT a_t.id) s;
 NOTICE:  [SILVER] Achievement unlocked: Lateral Thinking (+25)
-DETAIL:  Use LATERAL. Total score: 320.
+DETAIL:  Use LATERAL. Total score: 295.
 SELECT j -> 'a', j -> 'b', j ->> 'c', j ->> 'd', j @> '{}', j ? 'e',
        j -> 'f', j -> 'g', j -> 'h', j -> 'i' FROM a_t;
 NOTICE:  [SILVER] Achievement unlocked: JSONB Juggler (+25)
-DETAIL:  Use the JSONB operators ->, ->>, @> or ? 10 times. Total score: 345.
+DETAIL:  Use the JSONB operators ->, ->>, @> or ? 10 times. Total score: 320.
 SET pg_achievements.test_time_shift = 3601;
 SELECT 1;
 NOTICE:  [SILVER] Achievement unlocked: Patient (+25)
-DETAIL:  Wait for a query that runs longer than a minute. Total score: 370.
-NOTICE:  [PLATINUM] Achievement unlocked: Marathon (+100)
-DETAIL:  Wait for a query that runs longer than an hour. Total score: 470.
+DETAIL:  Wait for a query that runs longer than a minute. Total score: 345.
+NOTICE:  [GOLD] Achievement unlocked: Marathon (+50)
+DETAIL:  Wait for a query that runs longer than an hour. Total score: 395.
 BEGIN;
 ROLLBACK;
-NOTICE:  [PLATINUM] Achievement unlocked: Time Machine (+100)
-DETAIL:  Roll back a transaction that ran for over an hour. Total score: 570.
+NOTICE:  [BRONZE] Achievement unlocked: Ctrl+Z (+10)
+DETAIL:  Roll back a transaction with ROLLBACK. Total score: 405.
+NOTICE:  [GOLD] Achievement unlocked: Time Machine (+50)
+DETAIL:  Roll back a transaction that ran for over an hour. Total score: 455.
 RESET pg_achievements.test_time_shift;
 CREATE INDEX CONCURRENTLY ON a_t (j);
 NOTICE:  [SILVER] Achievement unlocked: No Locks (+25)
-DETAIL:  Create an index CONCURRENTLY. Total score: 595.
+DETAIL:  Create an index CONCURRENTLY. Total score: 480.
 CREATE FUNCTION a_trg() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END';
 CREATE TRIGGER a_trg BEFORE INSERT ON a_t FOR EACH ROW EXECUTE FUNCTION a_trg();
 NOTICE:  [SILVER] Achievement unlocked: Trigger Happy (+25)
-DETAIL:  Create a trigger. Total score: 620.
+DETAIL:  Create a trigger. Total score: 505.
 CREATE TABLE a_p (id int) PARTITION BY LIST (id);
 NOTICE:  [SILVER] Achievement unlocked: Divide and Conquer (+25)
-DETAIL:  Create a partitioned table or a partition. Total score: 645.
+DETAIL:  Create a partitioned table or a partition. Total score: 530.
 CREATE EXTENSION pg_stat_statements;
 DROP EXTENSION pg_stat_statements;
 CREATE EXTENSION pg_stat_statements;
 DROP EXTENSION pg_stat_statements;
 CREATE EXTENSION pg_stat_statements;
 NOTICE:  [SILVER] Achievement unlocked: Expanding Horizons (+25)
-DETAIL:  Create 3 extensions. Total score: 670.
+DETAIL:  Create 3 extensions. Total score: 555.
 DROP EXTENSION pg_stat_statements;
 -- gold
 UPDATE a_t SET id = id;
 NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE (+50)
-DETAIL:  UPDATE without a WHERE clause. Total score: 720.
+DETAIL:  UPDATE without a WHERE clause. Total score: 605.
 DELETE FROM a_t;
 NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE, Part 2 (+50)
-DETAIL:  DELETE without a WHERE clause. Total score: 770.
+DETAIL:  DELETE without a WHERE clause. Total score: 655.
 SET pg_achievements.notify = off;
 SELECT 'DO $$ BEGIN RAISE EXCEPTION ''x'' USING ERRCODE = ''40P01''; END $$' FROM generate_series(1, 5) \gexec
 DO $$ BEGIN RAISE EXCEPTION 'x' USING ERRCODE = '40P01'; END $$
@@ -1187,35 +1187,35 @@ RESET pg_achievements.notify;
 SET pg_achievements.test_now = '2026-11-20 20:00:00-08';
 CREATE TABLE a_friday (id int);
 NOTICE:  [GOLD] Achievement unlocked: Friday Deploy (+50)
-DETAIL:  Run DDL on a Friday after 18:00. Total score: 970.
+DETAIL:  Run DDL on a Friday after 18:00. Total score: 855.
 RESET pg_achievements.test_now;
 CREATE TABLE a_big AS SELECT generate_series(1, 2000) AS id;
 ANALYZE a_big;
 SELECT count(*) FROM a_big;
 NOTICE:  [GOLD] Achievement unlocked: Indexes Are for the Weak (+50)
-DETAIL:  Scan a table of a million rows sequentially. Total score: 1020.
+DETAIL:  Scan a table of a million rows sequentially. Total score: 905.
 SELECT pg_terminate_backend(-1), pg_terminate_backend(-1), pg_terminate_backend(-1),
        pg_terminate_backend(-1), pg_terminate_backend(-1), pg_terminate_backend(-1),
        pg_terminate_backend(-1), pg_terminate_backend(-1), pg_terminate_backend(-1),
        pg_terminate_backend(-1)
 FROM generate_series(1, 0);
 NOTICE:  [GOLD] Achievement unlocked: Executioner (+50)
-DETAIL:  Call pg_terminate_backend. Total score: 1070.
-NOTICE:  [PLATINUM] Achievement unlocked: Serial Executioner (+100)
-DETAIL:  Call pg_terminate_backend 10 times. Total score: 1170.
+DETAIL:  Call pg_terminate_backend. Total score: 955.
+NOTICE:  [GOLD] Achievement unlocked: Serial Executioner (+50)
+DETAIL:  Call pg_terminate_backend 10 times. Total score: 1005.
 TRUNCATE a_t;
 NOTICE:  [GOLD] Achievement unlocked: Clean Slate (+50)
-DETAIL:  TRUNCATE a table. Total score: 1220.
+DETAIL:  TRUNCATE a table. Total score: 1055.
 VACUUM FULL a_t;
 NOTICE:  [GOLD] Achievement unlocked: Master of the Table (+50)
-DETAIL:  Run VACUUM FULL. Total score: 1270.
+DETAIL:  Run VACUUM FULL. Total score: 1105.
 SELECT 1 FROM a_t t0 JOIN a_t t1 USING (id) JOIN a_t t2 USING (id) JOIN a_t t3 USING (id)
   JOIN a_t t4 USING (id) JOIN a_t t5 USING (id) JOIN a_t t6 USING (id) JOIN a_t t7 USING (id)
   JOIN a_t t8 USING (id) JOIN a_t t9 USING (id) JOIN a_t t10 USING (id);
 NOTICE:  [GOLD] Achievement unlocked: JOINs Without Borders (+50)
-DETAIL:  Run a query with 8 JOINs. Total score: 1320.
-NOTICE:  [PLATINUM] Achievement unlocked: Ten JOINs (+100)
-DETAIL:  Run a query with 10 JOINs. Total score: 1420.
+DETAIL:  Run a query with 8 JOINs. Total score: 1155.
+NOTICE:  [GOLD] Achievement unlocked: Ten JOINs (+50)
+DETAIL:  Run a query with 10 JOINs. Total score: 1205.
 SELECT format('CREATE TABLE a_many_%s ()', g) FROM generate_series(1, 100) g \gexec
 CREATE TABLE a_many_1 ()
 CREATE TABLE a_many_2 ()
@@ -1314,24 +1314,177 @@ CREATE TABLE a_many_94 ()
 CREATE TABLE a_many_95 ()
 CREATE TABLE a_many_96 ()
 NOTICE:  [GOLD] Achievement unlocked: Table Collector (+50)
-DETAIL:  Create 100 tables. Total score: 1470.
-NOTICE:  [PLATINUM] Achievement unlocked: Gold Rush (+100)
-DETAIL:  Collect every gold achievement. Total score: 1570.
+DETAIL:  Create 100 tables. Total score: 1255.
 CREATE TABLE a_many_97 ()
 CREATE TABLE a_many_98 ()
 CREATE TABLE a_many_99 ()
 CREATE TABLE a_many_100 ()
--- platinum
 CREATE DATABASE a_db;
 DROP DATABASE a_db;
-NOTICE:  [PLATINUM] Achievement unlocked: You Only Live Once (+100)
-DETAIL:  Drop a database. Total score: 1670.
+NOTICE:  [GOLD] Achievement unlocked: You Only Live Once (+50)
+DETAIL:  Drop a database. Total score: 1305.
 SELECT 'DROP TABLE ' || string_agg(format('a_many_%s', g), ', ') FROM generate_series(1, 50) g \gexec
 DROP TABLE a_many_1, a_many_2, a_many_3, a_many_4, a_many_5, a_many_6, a_many_7, a_many_8, a_many_9, a_many_10, a_many_11, a_many_12, a_many_13, a_many_14, a_many_15, a_many_16, a_many_17, a_many_18, a_many_19, a_many_20, a_many_21, a_many_22, a_many_23, a_many_24, a_many_25, a_many_26, a_many_27, a_many_28, a_many_29, a_many_30, a_many_31, a_many_32, a_many_33, a_many_34, a_many_35, a_many_36, a_many_37, a_many_38, a_many_39, a_many_40, a_many_41, a_many_42, a_many_43, a_many_44, a_many_45, a_many_46, a_many_47, a_many_48, a_many_49, a_many_50
-NOTICE:  [PLATINUM] Achievement unlocked: Scorched Earth (+100)
-DETAIL:  Drop 50 tables. Total score: 1770.
-NOTICE:  [PLATINUM] Achievement unlocked: Platinum Collection (+100)
-DETAIL:  Collect every other achievement. Total score: 1870.
+NOTICE:  [GOLD] Achievement unlocked: Scorched Earth (+50)
+DETAIL:  Drop 50 tables. Total score: 1355.
+-- added in 1.1; a billion rows would take too long here, so that one is
+-- granted by hand (before the end: a grant awards meta achievements quietly)
+SELECT achievements.grant('t_all', 'billionaire');
+BEGIN;
+ROLLBACK;
+INSERT INTO a_t VALUES (1) ON CONFLICT DO NOTHING;
+NOTICE:  [BRONZE] Achievement unlocked: Upsert Happens (+10)
+DETAIL:  Run INSERT ... ON CONFLICT. Total score: 1415.
+INSERT INTO a_t VALUES (2) RETURNING id;
+NOTICE:  [BRONZE] Achievement unlocked: Returning Hero (+10)
+DETAIL:  Use RETURNING in a data-modifying statement. Total score: 1425.
+COMMENT ON TABLE a_t IS 'all of them';
+NOTICE:  [BRONZE] Achievement unlocked: Self-Documenting (+10)
+DETAIL:  Describe an object with COMMENT ON. Total score: 1435.
+NOTICE:  [SILVER] Achievement unlocked: Collector (+25)
+DETAIL:  Collect every bronze achievement. Total score: 1460.
+MERGE INTO a_t USING a_t s ON a_t.id = s.id WHEN MATCHED THEN DO NOTHING;
+NOTICE:  [SILVER] Achievement unlocked: Merge Conflict (+25)
+DETAIL:  Run a MERGE statement. Total score: 1485.
+BEGIN;
+SAVEPOINT s;
+ROLLBACK TO s;
+NOTICE:  [SILVER] Achievement unlocked: Save Point (+25)
+DETAIL:  Roll back to a savepoint. Total score: 1510.
+COMMIT;
+CREATE MATERIALIZED VIEW a_mv AS SELECT 1 AS id;
+CREATE UNIQUE INDEX ON a_mv (id);
+REFRESH MATERIALIZED VIEW CONCURRENTLY a_mv;
+NOTICE:  [SILVER] Achievement unlocked: Materialist (+25)
+DETAIL:  Refresh a materialized view CONCURRENTLY. Total score: 1535.
+SELECT id FROM a_t FOR UPDATE SKIP LOCKED;
+NOTICE:  [SILVER] Achievement unlocked: Queue Master (+25)
+DETAIL:  Lock rows with SKIP LOCKED. Total score: 1560.
+SELECT id, count(*) FROM a_t GROUP BY ROLLUP (id);
+NOTICE:  [SILVER] Achievement unlocked: Cube Master (+25)
+DETAIL:  Use GROUPING SETS, ROLLUP or CUBE. Total score: 1585.
+CREATE POLICY a_pol ON a_t USING (true);
+NOTICE:  [SILVER] Achievement unlocked: Big Brother (+25)
+DETAIL:  Create a row-level security policy. Total score: 1610.
+NOTIFY a_chan;
+NOTICE:  [SILVER] Achievement unlocked: Are You Listening? (+25)
+DETAIL:  Use LISTEN, NOTIFY or pg_notify(). Total score: 1635.
+-- 60 failing statements: one short line each
+SET pg_achievements.notify = off;   -- see 04_errors
+\set ECHO none
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  relation "a_missing" does not exist at character 15
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+ERROR:  division by zero
+RESET pg_achievements.notify;
+SELECT count(*) FROM a_t, a_big;
+NOTICE:  [GOLD] Achievement unlocked: Cartesian Explosion (+50)
+DETAIL:  Join tables without any join condition. Total score: 1785.
+SELECT count(*) FROM a_t WHERE id NOT IN (SELECT id FROM a_big);
+NOTICE:  [GOLD] Achievement unlocked: NOT IN Trouble (+50)
+DETAIL:  Use NOT IN with a subquery (mind the NULLs). Total score: 1835.
+BEGIN;
+LOCK TABLE a_t;
+NOTICE:  [GOLD] Achievement unlocked: Lock Hoarder (+50)
+DETAIL:  Take an ACCESS EXCLUSIVE lock with LOCK TABLE. Total score: 1885.
+COMMIT;
+CREATE TABLE "a 🐘" (id int);
+NOTICE:  [GOLD] Achievement unlocked: Unicode Artist (+50)
+DETAIL:  Create a table with an emoji in its name. Total score: 1935.
+CREATE TABLE a_table_with_a_name_much_longer_than_sixty_three_bytes_believe_me (id int);
+NOTICE:  identifier "a_table_with_a_name_much_longer_than_sixty_three_bytes_believe_me" will be truncated to "a_table_with_a_name_much_longer_than_sixty_three_bytes_believe_"
+NOTICE:  [GOLD] Achievement unlocked: Novelist (+50)
+DETAIL:  Name a table so long that PostgreSQL truncates the name. Total score: 1985.
+SET pg_achievements.test_now = '2027-01-01 00:00:10-08';
+SELECT 'happy new year';
+NOTICE:  [GOLD] Achievement unlocked: Happy New Query (+50)
+DETAIL:  Run a query in the first minute of a new year. Total score: 2035.
+RESET pg_achievements.test_now;
+ALTER SYSTEM SET pg_achievements.enabled = off;
+NOTICE:  [GOLD] Achievement unlocked: Regret (+50)
+DETAIL:  Try to switch achievements off with ALTER SYSTEM. Total score: 2085.
+ALTER SYSTEM RESET pg_achievements.enabled;
+-- 30 days in a row; the last day completes every achievement
+\set ECHO none
+NOTICE:  [GOLD] Achievement unlocked: On a Roll (+50)
+DETAIL:  Run queries 30 days in a row. Total score: 2135.
+NOTICE:  [GOLD] Achievement unlocked: Gold Rush (+50)
+DETAIL:  Collect every gold achievement. Total score: 2185.
+NOTICE:  [PLATINUM] Achievement unlocked: Slonik's Chosen (+300)
+DETAIL:  Collect every other achievement. Total score: 2485.
+
+            _.-""""-._
+          .'          '.
+     .--./  (o)    (o)  \.--.
+    (    |              |    )
+     '--'\      __      /'--'
+          '.   |  |   .'
+            '-.|  |.-'
+               |  |
+               |  |
+               '--'
+
+C O N G R A T U L A T I O N S
+You have collected all 68 achievements.
+Slonik bows to you: there is nothing left to unlock.
+HINT:  Go outside, touch grass, run VACUUM.
+RESET pg_achievements.test_now;
 \o
 \set QUIET off
 SELECT achievements.sync();
@@ -1343,7 +1496,7 @@ SELECT achievements.sync();
 SELECT count(*) AS unlocked, sum(points) AS score FROM achievements.my;
  unlocked | score 
 ----------+-------
-       46 |  1870
+       68 |  2485
 (1 row)
 
 SELECT code FROM achievements.progress WHERE NOT unlocked;

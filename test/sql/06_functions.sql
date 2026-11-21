@@ -65,6 +65,8 @@ RESET ROLE;
 -- define a custom achievement on an existing counter
 SELECT achievements.define('truncator', 'Truncator', 'TRUNCATE 2 tables.', 'silver', 'truncate', 2);
 SELECT achievements.define('bad', 'Bad', 'Bad.', 'silver', 'no_such_counter', 2);
+-- platinum is reserved for the builtin "collect everything" achievement
+SELECT achievements.define('shiny', 'Shiny', 'Shiny.', 'platinum', 'truncate', 1);
 SELECT achievements.sync();
 SELECT code, points, builtin FROM achievements.catalog WHERE NOT builtin;
 SET ROLE t_fn;

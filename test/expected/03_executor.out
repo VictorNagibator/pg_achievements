@@ -46,8 +46,8 @@ DETAIL:  Wait for a query that runs longer than a minute. Total score: 85.
 
 SET pg_achievements.test_time_shift = '3601s';
 SELECT 1 AS very_slow;
-NOTICE:  [PLATINUM] Achievement unlocked: Marathon (+100)
-DETAIL:  Wait for a query that runs longer than an hour. Total score: 185.
+NOTICE:  [GOLD] Achievement unlocked: Marathon (+50)
+DETAIL:  Wait for a query that runs longer than an hour. Total score: 135.
  very_slow 
 -----------
          1
@@ -70,22 +70,49 @@ SELECT 1;
 (1 row)
 
 ROLLBACK;
-NOTICE:  [PLATINUM] Achievement unlocked: Time Machine (+100)
-DETAIL:  Roll back a transaction that ran for over an hour. Total score: 285.
+NOTICE:  [BRONZE] Achievement unlocked: Ctrl+Z (+10)
+DETAIL:  Roll back a transaction with ROLLBACK. Total score: 145.
+NOTICE:  [GOLD] Achievement unlocked: Time Machine (+50)
+DETAIL:  Roll back a transaction that ran for over an hour. Total score: 195.
 RESET pg_achievements.test_time_shift;
 BEGIN;
 ROLLBACK;
+-- rows_processed: rows returned by top-level queries (10 + 1 here)
+SELECT id FROM small;
+ id 
+----
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
+(10 rows)
+
+SELECT 1 FROM small WHERE id = 1;
+ ?column? 
+----------
+        1
+(1 row)
+
 \set QUIET off
 SELECT * FROM pga_counters();
         key         | value 
 --------------------+-------
  query_over_1h      |     3
  query_over_60s     |     4
+ rollback           |     2
  rollback_long_xact |     1
+ rows_processed     |    17
  select_star        |     1
  seqscan_big        |     1
- stmt_select        |     6
-(6 rows)
+ stmt_select        |     8
+ streak_days        |     1
+(9 rows)
 
 RESET ROLE;
 RESET

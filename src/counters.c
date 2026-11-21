@@ -37,6 +37,7 @@ static int64 localmax[PGA_NUM_COUNTERS];
 static bool dirty = false;
 static TimestampTz last_flush = 0;
 static TimestampTz last_refresh = 0;	/* last full re-read of shared values */
+static int32 noted_day = 0;		/* last day passed to pga_note_active_day */
 static bool exit_callback_registered = false;
 
 /* view of shared state as of the last refresh */
@@ -124,6 +125,7 @@ pga_set_role_name(const char *rolname)
 	memset(delta, 0, sizeof(delta));
 	memset(localmax, 0, sizeof(localmax));
 	dirty = false;
+	noted_day = 0;
 	pga_refresh_cache();
 
 	if (!exit_callback_registered)
@@ -436,6 +438,12 @@ pga_count_error(int sqlerrcode)
 		case ERRCODE_T_R_SERIALIZATION_FAILURE:
 			c = PGA_C_SERIALIZATION_FAILURE;
 			break;
+		case ERRCODE_UNDEFINED_TABLE:
+			c = PGA_C_ERR_UNDEFINED_TABLE;
+			break;
+		case ERRCODE_DIVISION_BY_ZERO:
+			c = PGA_C_ERR_DIVISION_BY_ZERO;
+			break;
 		default:
 			return;
 	}
@@ -446,6 +454,52 @@ pga_count_error(int sqlerrcode)
 
 	delta[c]++;
 	dirty = true;
+}
+
+/*
+ * Note that the current role was active on a day (a local day number, as
+ * returned by date2j) and extend its run of consecutive active days.
+ *
+ * The run lives in the streak_state counter: last active day in the high
+ * 32 bits, length of the run in the low 32 bits.  The packed value only
+ * grows (a later day, or a longer run on the same day), so it is merged
+ * like a "max" counter: sessions of the role that start the same day
+ * compute the same value, and the largest one wins in shared memory and in
+ * the table.  streak_days keeps the longest run ever seen.
+ *
+ * Only the first statement of each day does any work.  Nothing is noted
+ * before the worker has loaded the stored progress: a run computed from an
+ * empty state would start again at 1 and, being a later day, overwrite the
+ * stored run.
+ */
+void
+pga_note_active_day(int32 day)
+{
+	PgaRoleEntry *entry;
+	int64		state;
+	int32		last_day;
+	int64		run;
+
+	if (!cur_role_valid || day <= noted_day || !cache_ready)
+		return;
+	entry = pga_current_entry();
+	if (entry == NULL)
+		return;
+	noted_day = day;
+
+	/* another session of the role may have counted this day already */
+	cached[PGA_C_STREAK_STATE] =
+		(int64) pg_atomic_read_u64(&entry->values[PGA_C_STREAK_STATE]);
+	state = pga_effective(PGA_C_STREAK_STATE);
+	last_day = (int32) (state >> 32);
+	run = state & INT64CONST(0xFFFFFFFF);
+
+	if (day <= last_day)
+		return;					/* same day, or the clock went back */
+	run = (last_day == day - 1) ? run + 1 : 1;
+
+	pga_count_max(PGA_C_STREAK_STATE, ((int64) day << 32) | run);
+	pga_count_max(PGA_C_STREAK_DAYS, run);
 }
 
 /*

@@ -14,30 +14,32 @@ DETAIL:  Run your first SELECT. Total score: 20.
 SELECT achievements.version();
                              version                             
 -----------------------------------------------------------------
- pg_achievements 1.0 (library 1.0), catalog 1.0, 46 achievements
+ pg_achievements 1.1 (library 1.1), catalog 1.1, 68 achievements
 (1 row)
 
--- 35 counters, 46 achievements: 12 bronze, 14 silver, 12 gold, 8 platinum
+-- 58 counters, 68 achievements: 16 bronze, 21 silver, 30 gold, 1 platinum
 SELECT count(*) AS counters FROM achievements._counter_keys();
  counters 
 ----------
-       35
+       58
 (1 row)
 
 SELECT tier, count(*), min(points), max(points)
 FROM achievements.catalog GROUP BY tier ORDER BY tier;
    tier   | count | min | max 
 ----------+-------+-----+-----
- bronze   |    12 |  10 |  10
- silver   |    14 |  25 |  25
- gold     |    12 |  50 |  50
- platinum |     8 | 100 | 100
+ bronze   |    16 |  10 |  10
+ silver   |    21 |  25 |  25
+ gold     |    30 |  50 |  50
+ platinum |     1 | 300 | 300
 (4 rows)
 
 -- every builtin achievement refers to a known counter or a meta key
 SELECT code, counter_key FROM achievements.catalog
 WHERE counter_key NOT IN (SELECT key FROM achievements._counter_keys())
 ORDER BY code;
+NOTICE:  [GOLD] Achievement unlocked: NOT IN Trouble (+50)
+DETAIL:  Use NOT IN with a subquery (mind the NULLs). Total score: 70.
         code         |   counter_key    
 ---------------------+------------------
  bronze_collector    | meta:tier:bronze
@@ -71,5 +73,6 @@ RETURNS TABLE (key text, value bigint) LANGUAGE sql AS $$
     SELECT k.key, achievements.counter(k.key)
     FROM achievements._counter_keys() k
     WHERE achievements.counter(k.key) <> 0
+      AND k.key <> 'streak_state'     -- packed day and run, see 01_analyze
     ORDER BY k.key
 $$;

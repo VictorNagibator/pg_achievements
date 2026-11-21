@@ -20,9 +20,20 @@ SELECT FROM WHERE;
 ERROR:  syntax error at or near "WHERE"
 LINE 1: SELECT FROM WHERE;
                     ^
--- other errors do not count
+-- err_undefined_table, err_division_by_zero
+SELECT * FROM no_such_table;
+ERROR:  relation "no_such_table" does not exist
+LINE 1: SELECT * FROM no_such_table;
+                      ^
 SELECT 1 / 0;
 ERROR:  division by zero
+SELECT 1 % 0;
+ERROR:  division by zero
+-- other errors do not count
+SELECT 'x'::int;
+ERROR:  invalid input syntax for type integer: "x"
+LINE 1: SELECT 'x'::int;
+               ^
 -- deadlock and serialization failure, raised by hand; real ones are
 -- covered by the TAP tests
 DO $$ BEGIN RAISE EXCEPTION 'fake deadlock' USING ERRCODE = 'deadlock_detected'; END $$;
@@ -44,10 +55,13 @@ DETAIL:  Run your first SELECT. Total score: 110.
           key          | value 
 -----------------------+-------
  deadlock              |     1
+ err_division_by_zero  |     2
  err_syntax            |     2
+ err_undefined_table   |     1
  select_star           |     1
  serialization_failure |     1
-(4 rows)
+ streak_days           |     1
+(7 rows)
 
 SELECT achievements.sync();
  sync 

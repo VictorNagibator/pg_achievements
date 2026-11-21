@@ -34,6 +34,10 @@ RESET pg_achievements.test_time_shift;
 BEGIN;
 ROLLBACK;
 
+-- rows_processed: rows returned by top-level queries (10 + 1 here)
+SELECT id FROM small;
+SELECT 1 FROM small WHERE id = 1;
+
 \set QUIET off
 SELECT * FROM pga_counters();
 RESET ROLE;

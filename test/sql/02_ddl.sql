@@ -24,8 +24,48 @@ VACUUM d1;              -- plain VACUUM: not counted
 VACUUM (FULL) d1;
 CREATE EXTENSION IF NOT EXISTS plpgsql;    -- exists: not counted
 
+COMMENT ON TABLE d1 IS 'commented';
+CREATE POLICY d1_pol ON d1 USING (true);
+CREATE MATERIALIZED VIEW d_mv AS SELECT 1 AS id;
+CREATE UNIQUE INDEX d_mv_id ON d_mv (id);
+REFRESH MATERIALIZED VIEW d_mv;               -- not concurrently: not counted
+REFRESH MATERIALIZED VIEW CONCURRENTLY d_mv;
+LISTEN d_chan;
+UNLISTEN d_chan;                              -- not counted
+NOTIFY d_other_chan;   -- nobody listens: no message with a PID in the output
+
+-- lock_exclusive: LOCK TABLE takes ACCESS EXCLUSIVE unless told otherwise
+BEGIN;
+LOCK TABLE d1 IN SHARE MODE;
+LOCK TABLE d1;
+COMMIT;
+
+-- rollback and rollback_to_savepoint
+ROLLBACK;               -- no transaction: just a warning, not counted
+BEGIN;
+SAVEPOINT s;
+ROLLBACK TO SAVEPOINT s;
+ROLLBACK;
+
+-- emoji_name: an emoji, quoted or not; other non-ASCII letters do not count
+CREATE TABLE "elephant 🐘" (id int);
+CREATE TABLE d_🐘 AS SELECT 1 AS id;
+CREATE TABLE "naïve" (id int);
+
+-- long_name: the name is truncated to 63 bytes; exactly 63 is fine
+CREATE TABLE public.d_this_table_name_is_far_too_long_to_fit_into_sixty_three_bytes_ (id int);
+CREATE TABLE d_this_table_name_is_exactly_sixty_three_bytes_long_believe_me_ (id int);
+
+-- disable_attempt: only switching pg_achievements.enabled off
+ALTER SYSTEM SET pg_achievements.enabled = on;
+ALTER SYSTEM SET pg_achievements.enabled = off;
+ALTER SYSTEM RESET pg_achievements.enabled;
+
 -- DROP TABLE counts every dropped table
-DROP TABLE d1, d2;
+DROP TABLE d1, d2, "elephant 🐘", d_🐘, "naïve",
+    d_this_table_name_is_far_too_long_to_fit_into_sixty_three_bytes,
+    d_this_table_name_is_exactly_sixty_three_bytes_long_believe_me_;
+DROP MATERIALIZED VIEW d_mv;
 DROP TABLE IF EXISTS d_missing;            -- nothing dropped
 DROP TABLE dp;
 
