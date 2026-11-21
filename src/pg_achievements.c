@@ -15,6 +15,7 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
+#include "utils/tuplestore.h"
 #include "utils/wait_event.h"
 #include "miscadmin.h"
 

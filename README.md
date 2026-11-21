@@ -1,7 +1,7 @@
 # pg_achievements
 
 [![CI](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml)
-[![PostgreSQL 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-16%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](#requirements)
+[![PostgreSQL 16 | 17 | 18 | 19](https://img.shields.io/badge/PostgreSQL-16%20%7C%2017%20%7C%2018%20%7C%2019-336791?logo=postgresql&logoColor=white)](#requirements)
 [![PGXN version](https://badge.fury.io/pg/pg_achievements.svg)](https://pgxn.org/dist/pg_achievements/)
 [![pgext.cloud](https://img.shields.io/badge/pgext.cloud-pg__achievements-336791)](https://pgext.cloud/ext/pg_achievements)
 [![License: PostgreSQL](https://img.shields.io/badge/license-PostgreSQL-blue)](LICENSE)
@@ -51,7 +51,7 @@ HINT:  Go outside, touch grass, run VACUUM.
 
 ## Requirements
 
-- PostgreSQL 16, 17 or 18 on Linux; the main development version is 18;
+- PostgreSQL 16, 17, 18 or 19 on Linux; the main development version is 18;
 - the server must preload the library (`shared_preload_libraries`), so managed
   services such as RDS or Cloud SQL are not supported;
 - server headers and PGXS: `postgresql-server-dev-NN` on Debian/Ubuntu,

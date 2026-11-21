@@ -44,6 +44,13 @@
 #include "utils/rel.h"
 #include "utils/timestamp.h"
 
+/* PostgreSQL 19 passes the query jumble to post_parse_analyze_hook as const */
+#if PG_VERSION_NUM >= 190000
+typedef const JumbleState PgaJumbleState;
+#else
+typedef JumbleState PgaJumbleState;
+#endif
+
 /* JSONB operators: -> (text, int4), ->> (text, int4), @>, ? */
 #define OID_JSONB_OBJECT_FIELD		3211
 #define OID_JSONB_ARRAY_ELEMENT		3212
@@ -454,7 +461,7 @@ pga_has_select_star(ParseState *pstate, Query *query)
  * statement succeeds.
  */
 static void
-pga_post_parse_analyze(ParseState *pstate, Query *query, JumbleState *jstate)
+pga_post_parse_analyze(ParseState *pstate, Query *query, PgaJumbleState *jstate)
 {
 	if (prev_post_parse_analyze_hook)
 		prev_post_parse_analyze_hook(pstate, query, jstate);

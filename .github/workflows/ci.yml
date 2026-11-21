@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: [16, 17, 18]
+        pg: [16, 17, 18, 19]
     name: PostgreSQL ${{ matrix.pg }}
     steps:
       - uses: actions/checkout@v4

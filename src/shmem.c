@@ -81,8 +81,17 @@ pga_shmem_startup(void)
 	memset(&info, 0, sizeof(info));
 	info.keysize = NAMEDATALEN;
 	info.entrysize = sizeof(PgaRoleEntry);
+	/*
+	 * PostgreSQL 19 dropped the separate initial size: a shared hash is
+	 * always allocated at its full size up front, which is what we asked
+	 * for anyway.
+	 */
 	pga_roles = ShmemInitHash("pg_achievements roles",
+#if PG_VERSION_NUM >= 190000
+							  pga_max_roles,
+#else
 							  pga_max_roles, pga_max_roles,
+#endif
 							  &info,
 							  HASH_ELEM | HASH_STRINGS);
 
