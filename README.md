@@ -16,6 +16,7 @@ same session:
 postgres=> UPDATE accounts SET balance = 0;
 NOTICE:  🥇 [GOLD] Achievement unlocked: Forgot WHERE (+50)
 DETAIL:  UPDATE without a WHERE clause. Total score: 135.
+Unlocked by 3 of 14 players (21%).
 UPDATE 1042
 ```
 
@@ -96,6 +97,18 @@ The extension can only be created in `pg_achievements.database`, but events
 are collected from every database of the cluster. If that database does not
 exist yet, the background worker waits until it is created.
 
+### Upgrading from 1.1
+
+Install the new version, restart the server and update the SQL objects:
+
+```sql
+ALTER EXTENSION pg_achievements UPDATE;
+```
+
+1.2 keeps the catalog and the progress; it adds the NOTIFY announcements
+and the `achievements.rarity` view. Until the update the 1.2 library works
+with the 1.1 catalog, just without them.
+
 ### Upgrading from 1.0
 
 Install the new version, restart the server (the preloaded library changes
@@ -125,6 +138,9 @@ SELECT code, title, current, threshold, unlocked FROM achievements.progress;
 -- leaderboard of all roles that did not opt out
 SELECT * FROM achievements.leaderboard;
 
+-- how many players hold each achievement, rarest first
+SELECT code, tier, holders, players, percent FROM achievements.rarity;
+
 -- the catalog without hidden fields
 SELECT * FROM achievements.catalog_public;
 
@@ -134,6 +150,22 @@ SELECT achievements.counter('stmt_select');
 -- wait until the worker has written everything to the tables
 SELECT achievements.sync();
 ```
+
+Every new award is announced with `NOTIFY`, so a chat bot or a dashboard
+can listen instead of polling the tables. Connect to
+`pg_achievements.database` and listen on the channel `achievements`:
+
+```text
+postgres=> LISTEN achievements;
+Asynchronous notification "achievements" with payload "{"role" : "alice",
+"code" : "forgot_where", "title" : "Forgot WHERE", "tier" : "gold",
+"points" : 50, "awarded_at" : "2026-11-21T18:03:12.345+00:00"}" received
+from server process with PID 4242.
+```
+
+The payload has no description, so secret achievements stay secret. Awards
+of opted-out roles are not announced. Set `pg_achievements.notify_channel`
+to another channel name, or to an empty string to turn this off.
 
 Opt out of tracking for a role, or only for a session:
 
@@ -181,6 +213,7 @@ SELECT achievements.define('vacuum_fan', 'Vacuum Fan', 'Run VACUUM FULL 10 times
 | `pg_achievements.opt_out` | user | `off` | The role or session is not tracked at all |
 | `pg_achievements.notify` | user | `on` | Show notices in the session |
 | `pg_achievements.notice_style` | user | `emoji` | `emoji` (needs UTF8 on both sides) or `ascii` |
+| `pg_achievements.notify_channel` | reload | `achievements` | `NOTIFY` channel of new awards; empty turns it off |
 | `pg_achievements.track_nested` | superuser | `off` | Also count statements run inside functions |
 | `pg_achievements.flush_interval_ms` | reload | `1000` | How often counters go to the tables (min 100) |
 | `pg_achievements.big_table_rows` | reload | `1000000` | Row estimate (`reltuples`) of a "big" table for `seqscan_big` |
@@ -285,6 +318,10 @@ Counting rules:
 - The tables are not readable by `PUBLIC`. Ordinary roles use the views,
   which only show their own progress (the leaderboard shows scores of all
   roles that did not opt out).
+- Any role that can connect to `pg_achievements.database` may `LISTEN` to
+  the announcements, which carry the role name and the achievement, the
+  same facts as the leaderboard. Set `pg_achievements.notify_channel = ''`
+  if that is too much.
 - Administrative functions are revoked from `PUBLIC`. Functions that act on
   the caller (`counter`, `sync`, `reset`) run as the caller and check
   permissions in C, because `SECURITY DEFINER` would hide the caller's
@@ -309,7 +346,12 @@ Counting rules:
   server is safe: rows restored for a key the worker has already written are
   merged with it (sums add up, maxima and the earlier award time win). Then
   restart the server, so that shared memory, and with it the thresholds and
-  notices, see the restored progress.
+  notices, see the restored progress. Restored awards are announced with
+  `NOTIFY` like new ones.
+- The rarity line of a notice counts the roles active since the server
+  started or loaded from the tables, including roles that opted out after
+  playing; `achievements.rarity` leaves those out. The line is skipped
+  while there is only one player.
 
 ## Testing
 

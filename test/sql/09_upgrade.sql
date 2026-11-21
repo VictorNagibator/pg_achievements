@@ -1,5 +1,6 @@
--- ALTER EXTENSION UPDATE from 1.0 gives the same catalog and functions as a
--- fresh 1.1 install, and keeps the progress made under 1.0.
+-- ALTER EXTENSION UPDATE from 1.0 (through 1.1) gives the same catalog,
+-- functions, triggers and views as a fresh install of the latest version,
+-- and keeps the progress made under 1.0.
 SET pg_achievements.notify = off;
 -- tier as text: a column of the extension's type would block DROP EXTENSION
 CREATE TABLE fresh_catalog AS
@@ -8,6 +9,9 @@ CREATE TABLE fresh_catalog AS
 CREATE TABLE fresh_functions AS
     SELECT p.proname, pg_get_functiondef(p.oid) AS def
     FROM pg_proc p WHERE p.pronamespace = 'achievements'::regnamespace;
+CREATE TABLE fresh_views AS
+    SELECT c.relname, pg_get_viewdef(c.oid) AS def
+    FROM pg_class c WHERE c.relnamespace = 'achievements'::regnamespace AND c.relkind = 'v';
 
 DROP EXTENSION pg_achievements;
 CREATE EXTENSION pg_achievements VERSION '1.0';
@@ -21,7 +25,7 @@ SELECT achievements.grant('t_upgrade', 'platinum_collection');
 -- a custom platinum achievement is allowed in 1.0 and survives the update
 SELECT achievements.define('old_shiny', 'Old Shiny', 'Shiny.', 'platinum', 'truncate', 1);
 
-ALTER EXTENSION pg_achievements UPDATE TO '1.1';
+ALTER EXTENSION pg_achievements UPDATE TO '1.2';
 SELECT achievements.sync();
 SELECT achievements.version();
 
@@ -42,7 +46,16 @@ SELECT proname FROM (
      FROM pg_proc p WHERE p.pronamespace = 'achievements'::regnamespace
      EXCEPT TABLE fresh_functions)) d;
 
--- the merge triggers for restored rows exist after the update too
+SELECT relname FROM (
+    (TABLE fresh_views
+     EXCEPT SELECT c.relname, pg_get_viewdef(c.oid)
+            FROM pg_class c WHERE c.relnamespace = 'achievements'::regnamespace AND c.relkind = 'v')
+    UNION ALL
+    (SELECT c.relname, pg_get_viewdef(c.oid)
+     FROM pg_class c WHERE c.relnamespace = 'achievements'::regnamespace AND c.relkind = 'v'
+     EXCEPT TABLE fresh_views)) d;
+
+-- the merge and announce triggers exist after the update too
 SELECT tgrelid::regclass AS "table", tgname FROM pg_trigger
 WHERE tgrelid IN ('achievements.counters'::regclass, 'achievements.awarded'::regclass)
   AND NOT tgisinternal

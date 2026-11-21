@@ -1,5 +1,6 @@
--- ALTER EXTENSION UPDATE from 1.0 gives the same catalog and functions as a
--- fresh 1.1 install, and keeps the progress made under 1.0.
+-- ALTER EXTENSION UPDATE from 1.0 (through 1.1) gives the same catalog,
+-- functions, triggers and views as a fresh install of the latest version,
+-- and keeps the progress made under 1.0.
 SET pg_achievements.notify = off;
 -- tier as text: a column of the extension's type would block DROP EXTENSION
 CREATE TABLE fresh_catalog AS
@@ -8,6 +9,9 @@ CREATE TABLE fresh_catalog AS
 CREATE TABLE fresh_functions AS
     SELECT p.proname, pg_get_functiondef(p.oid) AS def
     FROM pg_proc p WHERE p.pronamespace = 'achievements'::regnamespace;
+CREATE TABLE fresh_views AS
+    SELECT c.relname, pg_get_viewdef(c.oid) AS def
+    FROM pg_class c WHERE c.relnamespace = 'achievements'::regnamespace AND c.relkind = 'v';
 DROP EXTENSION pg_achievements;
 CREATE EXTENSION pg_achievements VERSION '1.0';
 SELECT achievements.sync();
@@ -19,7 +23,7 @@ SELECT achievements.sync();
 SELECT achievements.version();
                              version                             
 -----------------------------------------------------------------
- pg_achievements 1.0 (library 1.1), catalog 1.0, 46 achievements
+ pg_achievements 1.0 (library 1.2), catalog 1.0, 46 achievements
 (1 row)
 
 -- progress under 1.0: a platinum achievement and the old meta one
@@ -48,7 +52,7 @@ SELECT achievements.define('old_shiny', 'Old Shiny', 'Shiny.', 'platinum', 'trun
  
 (1 row)
 
-ALTER EXTENSION pg_achievements UPDATE TO '1.1';
+ALTER EXTENSION pg_achievements UPDATE TO '1.2';
 SELECT achievements.sync();
  sync 
 ------
@@ -58,7 +62,7 @@ SELECT achievements.sync();
 SELECT achievements.version();
                              version                             
 -----------------------------------------------------------------
- pg_achievements 1.1 (library 1.1), catalog 1.1, 69 achievements
+ pg_achievements 1.2 (library 1.2), catalog 1.1, 69 achievements
 (1 row)
 
 -- the builtin catalog and the functions match a fresh install
@@ -85,7 +89,19 @@ SELECT proname FROM (
 ---------
 (0 rows)
 
--- the merge triggers for restored rows exist after the update too
+SELECT relname FROM (
+    (TABLE fresh_views
+     EXCEPT SELECT c.relname, pg_get_viewdef(c.oid)
+            FROM pg_class c WHERE c.relnamespace = 'achievements'::regnamespace AND c.relkind = 'v')
+    UNION ALL
+    (SELECT c.relname, pg_get_viewdef(c.oid)
+     FROM pg_class c WHERE c.relnamespace = 'achievements'::regnamespace AND c.relkind = 'v'
+     EXCEPT TABLE fresh_views)) d;
+ relname 
+---------
+(0 rows)
+
+-- the merge and announce triggers exist after the update too
 SELECT tgrelid::regclass AS "table", tgname FROM pg_trigger
 WHERE tgrelid IN ('achievements.counters'::regclass, 'achievements.awarded'::regclass)
   AND NOT tgisinternal
@@ -93,8 +109,9 @@ ORDER BY 1, 2;
          table         |     tgname     
 -----------------------+----------------
  achievements.counters | merge_existing
+ achievements.awarded  | announce
  achievements.awarded  | merge_existing
-(2 rows)
+(3 rows)
 
 -- awards are kept, with the new tiers and points
 SET ROLE t_upgrade;
@@ -128,7 +145,7 @@ ERROR:  custom achievements use codes of new builtin achievements: streak
 SELECT achievements.version();
                              version                             
 -----------------------------------------------------------------
- pg_achievements 1.0 (library 1.1), catalog 1.0, 47 achievements
+ pg_achievements 1.0 (library 1.2), catalog 1.0, 47 achievements
 (1 row)
 
 -- without it the update goes through
@@ -137,6 +154,6 @@ ALTER EXTENSION pg_achievements UPDATE TO '1.1';
 SELECT achievements.version();
                              version                             
 -----------------------------------------------------------------
- pg_achievements 1.1 (library 1.1), catalog 1.1, 68 achievements
+ pg_achievements 1.1 (library 1.2), catalog 1.1, 68 achievements
 (1 row)
 

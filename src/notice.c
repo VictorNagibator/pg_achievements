@@ -5,6 +5,7 @@
  *
  *	NOTICE:  🥇 [GOLD] Achievement unlocked: Forgot WHERE (+50)
  *	DETAIL:  UPDATE without a WHERE clause. Total score: 135.
+ *	Unlocked by 2 of 15 players (13%).
  *
  * The "collect everything" achievement (meta:all, the platinum one) gets a
  * bigger celebration, see pga_send_platinum_notice().
@@ -135,6 +136,28 @@ pga_send_platinum_notice(PgaRoleEntry *entry, const PgaCatalogSlot *slot,
 	pfree(detail.data);
 }
 
+/*
+ * Rarity line of the DETAIL, like the "% of players" of game consoles, or
+ * an empty string while the role plays alone: "1 of 1" says nothing.  The
+ * role has just got the achievement, so it is among the holders.
+ */
+static char *
+pga_rarity_line(int slot)
+{
+	int			holders;
+	int			players;
+
+	pga_slot_rarity(slot, &holders, &players);
+	if (players < 2 || holders < 1)
+		return pstrdup("");
+	if (holders == 1)
+		return psprintf("\nYou are the first of %d players to unlock it.",
+						players);
+	return psprintf("\nUnlocked by %d of %d players (%d%%).",
+					holders, players,
+					(int) ((holders * 100.0) / players + 0.5));
+}
+
 /* Send the "Achievement unlocked" notice for a slot to the client. */
 void
 pga_send_notice(PgaRoleEntry *entry, int s)
@@ -143,6 +166,7 @@ pga_send_notice(PgaRoleEntry *entry, int s)
 	const char *medal = "";
 	const char *sep = "";
 	const char *desc;
+	char	   *rarity;
 	int			tier;
 	bool		emoji = pga_use_emoji();
 
@@ -164,6 +188,7 @@ pga_send_notice(PgaRoleEntry *entry, int s)
 	}
 
 	desc = slot->description;
+	rarity = pga_rarity_line(s);
 
 	/*
 	 * Neither the statement nor the context goes to the log with this
@@ -172,9 +197,10 @@ pga_send_notice(PgaRoleEntry *entry, int s)
 	ereport(NOTICE,
 			(errmsg("%s%s[%s] Achievement unlocked: %s (+%d)",
 					medal, sep, tier_upper[tier], slot->title, slot->points),
-			 errdetail("%s%s Total score: " INT64_FORMAT ".",
+			 errdetail("%s%s Total score: " INT64_FORMAT ".%s",
 					   desc, pga_sentence_end(desc),
-					   pga_total_score(entry)),
+					   pga_total_score(entry), rarity),
 			 errhidestmt(true),
 			 errhidecontext(true)));
+	pfree(rarity);
 }

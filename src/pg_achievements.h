@@ -19,7 +19,7 @@
 #include "storage/lwlock.h"
 #include "storage/spin.h"
 
-#define PGA_VERSION			"1.1"
+#define PGA_VERSION			"1.2"
 #define PGA_SCHEMA			"achievements"
 #define PGA_EXTNAME			"pg_achievements"
 
@@ -230,6 +230,7 @@ extern void pga_purge_queue_role(const char *rolname);
 extern int	pga_drain_queue(PgaQueuedAward *out, int max);
 extern void pga_reset_role_entry(PgaRoleEntry *entry);
 extern void pga_reset_all_entries(void);
+extern void pga_slot_rarity(int slot, int *holders, int *players);
 
 static inline bool
 pga_bit_test(pg_atomic_uint64 *words, int slot)
@@ -262,6 +263,7 @@ extern bool pga_track_nested;
 extern int	pga_flush_interval_ms;
 extern int	pga_big_table_rows;
 extern int	pga_max_roles;
+extern char *pga_notify_channel;
 #ifdef PGA_TESTING
 extern char *pga_test_now;
 extern int	pga_test_time_shift;

@@ -18,6 +18,7 @@ SET ROLE t_analyze;
 SELECT 1 AS one;
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 10.
+Unlocked by 2 of 2 players (100%).
  one 
 -----
    1
@@ -65,6 +66,7 @@ SELECT a * 2 FROM t1 WHERE id = 1;
 WITH x AS (SELECT 1 AS v) SELECT v FROM x;
 NOTICE:  [BRONZE] Achievement unlocked: WITH Love (+10)
 DETAIL:  Run a query with a common table expression. Total score: 20.
+You are the first of 2 players to unlock it.
  v 
 ---
  1
@@ -74,6 +76,7 @@ WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)
 SELECT count(*) FROM r;
 NOTICE:  [SILVER] Achievement unlocked: Recursion: See Recursion (+25)
 DETAIL:  Run a WITH RECURSIVE query. Total score: 45.
+You are the first of 2 players to unlock it.
  count 
 -------
      3
@@ -83,6 +86,7 @@ DETAIL:  Run a WITH RECURSIVE query. Total score: 45.
 SELECT id, row_number() OVER (ORDER BY id) FROM t1 WHERE id < 3;
 NOTICE:  [SILVER] Achievement unlocked: Open Window (+25)
 DETAIL:  Use a window function. Total score: 70.
+You are the first of 2 players to unlock it.
  id | row_number 
 ----+------------
   1 |          1
@@ -93,6 +97,7 @@ DETAIL:  Use a window function. Total score: 70.
 SELECT t1.id, s.x FROM t1, LATERAL (SELECT t1.a + 1 AS x) s WHERE t1.id = 1;
 NOTICE:  [SILVER] Achievement unlocked: Lateral Thinking (+25)
 DETAIL:  Use LATERAL. Total score: 95.
+You are the first of 2 players to unlock it.
  id | x 
 ----+---
   1 | 2
@@ -115,6 +120,7 @@ SELECT j -> 0 FROM t1 WHERE id = 1;
 SELECT count(*) FROM t1 JOIN t2 ON t2.t1_id = t1.id;
 NOTICE:  [BRONZE] Achievement unlocked: All Connected (+10)
 DETAIL:  Run a query with an explicit JOIN. Total score: 105.
+You are the first of 2 players to unlock it.
  count 
 -------
     10
@@ -136,6 +142,7 @@ SELECT count(*) FROM t1 JOIN t2 ON t2.t1_id = t1.id;
 SELECT id FROM t1 WHERE a = NULL;
 NOTICE:  [BRONZE] Achievement unlocked: NULL Is Not Equal to NULL (+10)
 DETAIL:  Compare with = NULL instead of IS NULL. Total score: 115.
+You are the first of 2 players to unlock it.
  id 
 ----
 (0 rows)
@@ -144,13 +151,16 @@ DETAIL:  Compare with = NULL instead of IS NULL. Total score: 115.
 UPDATE t1 SET a = a;
 NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE (+50)
 DETAIL:  UPDATE without a WHERE clause. Total score: 165.
+You are the first of 2 players to unlock it.
 BEGIN;
 DELETE FROM t2;
 NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE, Part 2 (+50)
 DETAIL:  DELETE without a WHERE clause. Total score: 215.
+You are the first of 2 players to unlock it.
 ROLLBACK;
 NOTICE:  [BRONZE] Achievement unlocked: Ctrl+Z (+10)
 DETAIL:  Roll back a transaction with ROLLBACK. Total score: 225.
+You are the first of 2 players to unlock it.
 UPDATE t1 SET a = 1 / 0;
 ERROR:  division by zero
 -- with WHERE: nothing
@@ -160,6 +170,7 @@ SELECT pg_terminate_backend(-1);
 WARNING:  PID -1 is not a PostgreSQL backend process
 NOTICE:  [GOLD] Achievement unlocked: Executioner (+50)
 DETAIL:  Call pg_terminate_backend. Total score: 275.
+You are the first of 2 players to unlock it.
  pg_terminate_backend 
 ----------------------
  f
@@ -169,9 +180,11 @@ DETAIL:  Call pg_terminate_backend. Total score: 275.
 INSERT INTO t1 VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
 NOTICE:  [BRONZE] Achievement unlocked: Upsert Happens (+10)
 DETAIL:  Run INSERT ... ON CONFLICT. Total score: 285.
+You are the first of 2 players to unlock it.
 INSERT INTO t1 VALUES (11, 11) ON CONFLICT (id) DO UPDATE SET a = EXCLUDED.a RETURNING id;
 NOTICE:  [BRONZE] Achievement unlocked: Returning Hero (+10)
 DETAIL:  Use RETURNING in a data-modifying statement. Total score: 295.
+You are the first of 2 players to unlock it.
  id 
 ----
  11
@@ -187,10 +200,12 @@ DELETE FROM t1 WHERE id = 11 RETURNING *;
 MERGE INTO t2 USING t1 ON t2.id = t1.id WHEN NOT MATCHED THEN DO NOTHING;
 NOTICE:  [SILVER] Achievement unlocked: Merge Conflict (+25)
 DETAIL:  Run a MERGE statement. Total score: 320.
+You are the first of 2 players to unlock it.
 -- skip_locked: NOWAIT does not count
 SELECT id FROM t1 WHERE id = 1 FOR UPDATE SKIP LOCKED;
 NOTICE:  [SILVER] Achievement unlocked: Queue Master (+25)
 DETAIL:  Lock rows with SKIP LOCKED. Total score: 345.
+You are the first of 2 players to unlock it.
  id 
 ----
   1
@@ -206,6 +221,7 @@ SELECT id FROM t1 WHERE id = 1 FOR UPDATE NOWAIT;
 SELECT a, count(*) FROM t1 WHERE id = 1 GROUP BY CUBE (a) ORDER BY a;
 NOTICE:  [SILVER] Achievement unlocked: Cube Master (+25)
 DETAIL:  Use GROUPING SETS, ROLLUP or CUBE. Total score: 370.
+You are the first of 2 players to unlock it.
  a | count 
 ---+-------
  1 |     1
@@ -216,6 +232,7 @@ DETAIL:  Use GROUPING SETS, ROLLUP or CUBE. Total score: 370.
 SELECT count(*) FROM t1, t2;
 NOTICE:  [GOLD] Achievement unlocked: Cartesian Explosion (+50)
 DETAIL:  Join tables without any join condition. Total score: 420.
+You are the first of 2 players to unlock it.
  count 
 -------
    100
@@ -244,6 +261,7 @@ SELECT count(*) FROM t1, generate_series(1, 2);
 SELECT count(*) FROM t1 WHERE id NOT IN (SELECT t1_id FROM t2);
 NOTICE:  [GOLD] Achievement unlocked: NOT IN Trouble (+50)
 DETAIL:  Use NOT IN with a subquery (mind the NULLs). Total score: 470.
+Unlocked by 2 of 2 players (100%).
  count 
 -------
      0
@@ -265,6 +283,7 @@ SELECT count(*) FROM t1 WHERE id IN (SELECT t1_id FROM t2);
 SELECT pg_notify('t_analyze', 'hi');
 NOTICE:  [SILVER] Achievement unlocked: Are You Listening? (+25)
 DETAIL:  Use LISTEN, NOTIFY or pg_notify(). Total score: 495.
+You are the first of 2 players to unlock it.
  pg_notify 
 -----------
  
@@ -278,6 +297,7 @@ SET pg_achievements.test_now = '2026-11-18 03:30:00-08';
 SELECT 2 AS night;
 NOTICE:  [BRONZE] Achievement unlocked: Night Owl (+10)
 DETAIL:  Run a query between 03:00 and 05:00. Total score: 505.
+You are the first of 2 players to unlock it.
  night 
 -------
      2
@@ -320,6 +340,7 @@ SET pg_achievements.test_now = '2027-01-01 00:00:30-08';
 SELECT 'day 3, happy new year' AS streak;
 NOTICE:  [GOLD] Achievement unlocked: Happy New Query (+50)
 DETAIL:  Run a query in the first minute of a new year. Total score: 555.
+You are the first of 2 players to unlock it.
         streak         
 -----------------------
  day 3, happy new year

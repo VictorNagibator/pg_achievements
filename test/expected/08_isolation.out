@@ -43,6 +43,7 @@ SET ROLE t_iso;
 SELECT 4 AS counted;
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 10.
+Unlocked by 10 of 10 players (100%).
  counted 
 ---------
        4

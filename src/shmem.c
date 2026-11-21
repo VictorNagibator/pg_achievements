@@ -179,6 +179,44 @@ pga_reset_role_entry(PgaRoleEntry *entry)
 	pg_atomic_write_u32(&entry->reset_requested, 1);
 }
 
+/*
+ * Rarity of an achievement among the roles known to shared memory: how many
+ * of them hold it, and how many "players" there are at all.  A player is a
+ * role with any progress; entries zeroed by reset() stay in the hash but do
+ * not count.  The scan takes the shared lock once and runs only when an
+ * achievement is unlocked, so its cost does not matter.
+ */
+void
+pga_slot_rarity(int slot, int *holders, int *players)
+{
+	HASH_SEQ_STATUS status;
+	PgaRoleEntry *entry;
+
+	*holders = 0;
+	*players = 0;
+	if (pga_roles == NULL || slot < 0 || slot >= PGA_MAX_CATALOG)
+		return;
+
+	LWLockAcquire(pga_shared->lock, LW_SHARED);
+	hash_seq_init(&status, pga_roles);
+	while ((entry = hash_seq_search(&status)) != NULL)
+	{
+		bool		active = false;
+
+		for (int i = 0; i < PGA_AWARD_WORDS && !active; i++)
+			active = pg_atomic_read_u64(&entry->awarded[i]) != 0;
+		for (int i = 0; i < PGA_NUM_COUNTERS && !active; i++)
+			active = pg_atomic_read_u64(&entry->values[i]) != 0;
+		if (!active)
+			continue;
+
+		(*players)++;
+		if (pga_bit_test(entry->awarded, slot))
+			(*holders)++;
+	}
+	LWLockRelease(pga_shared->lock);
+}
+
 /* Worker only: forget all progress (the extension was dropped). */
 void
 pga_reset_all_entries(void)

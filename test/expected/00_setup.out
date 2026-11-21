@@ -14,7 +14,7 @@ DETAIL:  Run your first SELECT. Total score: 20.
 SELECT achievements.version();
                              version                             
 -----------------------------------------------------------------
- pg_achievements 1.1 (library 1.1), catalog 1.1, 68 achievements
+ pg_achievements 1.2 (library 1.2), catalog 1.1, 68 achievements
 (1 row)
 
 -- 58 counters, 68 achievements: 16 bronze, 21 silver, 30 gold, 1 platinum

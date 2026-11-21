@@ -19,6 +19,7 @@ SET enable_bitmapscan = off;
 SELECT count(*) FROM small;
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 10.
+Unlocked by 4 of 4 players (100%).
  count 
 -------
     10
@@ -27,6 +28,7 @@ DETAIL:  Run your first SELECT. Total score: 10.
 SELECT count(*) FROM big;
 NOTICE:  [GOLD] Achievement unlocked: Indexes Are for the Weak (+50)
 DETAIL:  Scan a table of a million rows sequentially. Total score: 60.
+You are the first of 4 players to unlock it.
  count 
 -------
   2000
@@ -39,6 +41,7 @@ SET pg_achievements.test_time_shift = '61s';
 SELECT 1 AS slow;
 NOTICE:  [SILVER] Achievement unlocked: Patient (+25)
 DETAIL:  Wait for a query that runs longer than a minute. Total score: 85.
+You are the first of 4 players to unlock it.
  slow 
 ------
     1
@@ -48,6 +51,7 @@ SET pg_achievements.test_time_shift = '3601s';
 SELECT 1 AS very_slow;
 NOTICE:  [GOLD] Achievement unlocked: Marathon (+50)
 DETAIL:  Wait for a query that runs longer than an hour. Total score: 135.
+You are the first of 4 players to unlock it.
  very_slow 
 -----------
          1
@@ -72,8 +76,10 @@ SELECT 1;
 ROLLBACK;
 NOTICE:  [BRONZE] Achievement unlocked: Ctrl+Z (+10)
 DETAIL:  Roll back a transaction with ROLLBACK. Total score: 145.
+Unlocked by 3 of 4 players (75%).
 NOTICE:  [GOLD] Achievement unlocked: Time Machine (+50)
 DETAIL:  Roll back a transaction that ran for over an hour. Total score: 195.
+You are the first of 4 players to unlock it.
 RESET pg_achievements.test_time_shift;
 BEGIN;
 ROLLBACK;

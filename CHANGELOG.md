@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0 — 2026-11-21
+
+Achievements become social.
+
+- New awards are announced with `NOTIFY` on the channel
+  `pg_achievements.notify_channel` (`achievements` by default, empty to turn
+  it off), with a JSON payload: role, code, title, tier, points and time.
+  Opted-out roles are not announced.
+- New view `achievements.rarity`: how many players hold each achievement,
+  like the "% of players" of game consoles.
+- The notice tells how rare a fresh achievement is: "Unlocked by 3 of 14
+  players (21%)." or "You are the first of 14 players to unlock it."
+- PostgreSQL 19 is supported.
+- Upgrade with `ALTER EXTENSION pg_achievements UPDATE` after installing the
+  new version and restarting the server. The catalog does not change.
+
 ## 1.1.0 — 2026-11-21
 
 Platinum is now a single trophy, as on game consoles: collect everything

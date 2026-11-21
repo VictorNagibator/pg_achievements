@@ -20,10 +20,12 @@ ERROR:  permission denied for table awarded
 UPDATE achievements.catalog SET points = 1000;
 NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE (+50)
 DETAIL:  UPDATE without a WHERE clause. Total score: 50.
+Unlocked by 2 of 6 players (33%).
 ERROR:  permission denied for table catalog
 SELECT count(*) FROM achievements.my;
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 60.
+Unlocked by 6 of 6 players (100%).
  count 
 -------
      0

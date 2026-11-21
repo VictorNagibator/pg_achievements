@@ -52,6 +52,7 @@ RESET pg_achievements.notify;
 SELECT * FROM pga_counters();
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 110.
+Unlocked by 5 of 5 players (100%).
           key          | value 
 -----------------------+-------
  deadlock              |     1

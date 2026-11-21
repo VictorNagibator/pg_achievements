@@ -16,6 +16,7 @@ SET ROLE t_fn;
 SELECT 1 AS first;
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 10.
+Unlocked by 7 of 7 players (100%).
  first 
 -------
      1
@@ -66,6 +67,7 @@ SET ROLE t_fn;
 DO $$ BEGIN EXECUTE 'DROP TABLE fn_nested'; EXECUTE 'CREATE TABLE fn_nested (id int)'; END $$;
 NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
 DETAIL:  Create your first table. Total score: 20.
+Unlocked by 3 of 7 players (43%).
 SELECT achievements.counter('create_table');
  counter 
 ---------
@@ -103,6 +105,7 @@ SET pg_achievements.notice_style = emoji;
 SELECT id, rank() OVER (ORDER BY id) FROM (VALUES (1)) v(id);
 NOTICE:  🥈 [SILVER] Achievement unlocked: Open Window (+25)
 DETAIL:  Use a window function. Total score: 55.
+Unlocked by 2 of 7 players (29%).
  id | rank 
 ----+------
   1 |    1
@@ -119,6 +122,7 @@ PL/pgSQL function achievements.reset(name) line 3 at PERFORM
 SELECT achievements.reset();
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 10.
+Unlocked by 7 of 7 players (100%).
  reset 
 -------
  
@@ -207,12 +211,15 @@ SET ROLE t_fn;
 CREATE TABLE fn_t (id int);
 NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
 DETAIL:  Create your first table. Total score: 70.
+Unlocked by 3 of 7 players (43%).
 TRUNCATE fn_t;
 NOTICE:  [GOLD] Achievement unlocked: Clean Slate (+50)
 DETAIL:  TRUNCATE a table. Total score: 120.
+Unlocked by 2 of 7 players (29%).
 TRUNCATE fn_t;
 NOTICE:  [SILVER] Achievement unlocked: Truncator (+25)
 DETAIL:  TRUNCATE 2 tables. Total score: 145.
+You are the first of 7 players to unlock it.
 RESET ROLE;
 -- custom achievements do not change the meta ones
 SELECT count(*) FROM achievements.catalog WHERE builtin;
@@ -237,6 +244,7 @@ SET ROLE t_gone;
 SELECT 1 AS soon_gone;
 NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
 DETAIL:  Run your first SELECT. Total score: 10.
+Unlocked by 8 of 8 players (100%).
  soon_gone 
 -----------
          1

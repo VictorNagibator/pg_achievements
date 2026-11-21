@@ -22,6 +22,7 @@ bool		pga_track_nested = false;
 int			pga_flush_interval_ms = 1000;
 int			pga_big_table_rows = 1000000;
 int			pga_max_roles = 1024;
+char	   *pga_notify_channel = NULL;
 
 #ifdef PGA_TESTING
 char	   *pga_test_now = NULL;
@@ -79,6 +80,23 @@ assign_test_now(const char *newval, void *extra)
 	}
 }
 #endif
+
+/*
+ * The channel name goes to pg_notify(), which refuses names of NAMEDATALEN
+ * bytes or more.  Checking it here turns a typo in postgresql.conf into a
+ * clear error at reload instead of a failing write of the worker.
+ */
+static bool
+check_notify_channel(char **newval, void **extra, GucSource source)
+{
+	if (*newval != NULL && strlen(*newval) >= NAMEDATALEN)
+	{
+		GUC_check_errdetail("The channel name must be shorter than %d bytes.",
+							NAMEDATALEN);
+		return false;
+	}
+	return true;
+}
 
 /* Register all parameters; called from _PG_init in the postmaster. */
 void
@@ -168,6 +186,20 @@ pga_define_gucs(void)
 							PGC_POSTMASTER,
 							0,
 							NULL, NULL, NULL);
+
+	/*
+	 * Read by the trigger on achievements.awarded (see the SQL script), so
+	 * every new award is announced with NOTIFY; an empty string turns that
+	 * off.  SIGHUP, so that a session cannot hide its awards from listeners.
+	 */
+	DefineCustomStringVariable("pg_achievements.notify_channel",
+							   "NOTIFY channel that announces new achievements.",
+							   "An empty string disables the notifications.",
+							   &pga_notify_channel,
+							   "achievements",
+							   PGC_SIGHUP,
+							   0,
+							   check_notify_channel, NULL, NULL);
 
 #ifdef PGA_TESTING
 	DefineCustomStringVariable("pg_achievements.test_now",
