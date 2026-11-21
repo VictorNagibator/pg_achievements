@@ -3,11 +3,14 @@
 [![CI](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml)
 [![PostgreSQL 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-16%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](#requirements)
 [![PGXN version](https://badge.fury.io/pg/pg_achievements.svg)](https://pgxn.org/dist/pg_achievements/)
+[![pgext.cloud](https://img.shields.io/badge/pgext.cloud-pg__achievements-336791)](https://pgext.cloud/ext/pg_achievements)
 [![License: PostgreSQL](https://img.shields.io/badge/license-PostgreSQL-blue)](LICENSE)
 
 Game achievements for PostgreSQL users. The extension watches what roles do in
-the database and hands out achievements in four tiers (bronze, silver, gold,
-platinum). The notice arrives right in the client, in the same session:
+the database and hands out bronze, silver and gold achievements; like a
+trophy on a game console, the single platinum one goes to those who have
+collected all the others. The notice arrives right in the client, in the
+same session:
 
 ```text
 postgres=> UPDATE accounts SET balance = 0;
@@ -19,8 +22,32 @@ UPDATE 1042
 Some achievements nudge you toward PostgreSQL features (`EXPLAIN ANALYZE`,
 recursive CTEs, window functions, partitioning, `CREATE INDEX CONCURRENTLY`).
 Others gently mock classic mistakes, like the `UPDATE` above or a Friday
-evening deploy. All 46 builtin achievements are listed in
+evening deploy. All 68 builtin achievements are listed in
 [docs/ACHIEVEMENTS.md](docs/ACHIEVEMENTS.md).
+
+Collect them all and Slonik, the PostgreSQL elephant, comes to congratulate
+you in person:
+
+```text
+NOTICE:  💎 [PLATINUM] Achievement unlocked: Slonik's Chosen (+300)
+DETAIL:  Collect every other achievement. Total score: 2485.
+
+            _.-""""-._
+          .'          '.
+     .--./  (o)    (o)  \.--.
+    (    |              |    )
+     '--'\      __      /'--'
+          '.   |  |   .'
+            '-.|  |.-'
+               |  |
+               |  |
+               '--'
+
+🎉 C O N G R A T U L A T I O N S 🎉
+You have collected all 68 achievements.
+Slonik bows to you: there is nothing left to unlock.
+HINT:  Go outside, touch grass, run VACUUM.
+```
 
 ## Requirements
 
@@ -40,6 +67,10 @@ From [PGXN](https://pgxn.org/dist/pg_achievements/):
 ```sh
 pgxn install pg_achievements
 ```
+
+Binary packages are listed in the [pgext.cloud](https://pgext.cloud/ext/pg_achievements)
+extension catalog, together with the install commands for each
+distribution and PostgreSQL version.
 
 Or from source:
 
@@ -64,6 +95,23 @@ CREATE EXTENSION pg_achievements;
 The extension can only be created in `pg_achievements.database`, but events
 are collected from every database of the cluster. If that database does not
 exist yet, the background worker waits until it is created.
+
+### Upgrading from 1.0
+
+Install the new version, restart the server (the preloaded library changes
+its shared memory), then update the SQL objects:
+
+```sql
+ALTER EXTENSION pg_achievements UPDATE;
+```
+
+Until the update the 1.1 library keeps working with the 1.0 catalog.
+Progress and awards are kept. The former platinum achievements become gold
+(50 points instead of 100), and the only platinum one left is
+`platinum_collection`, renamed to Slonik's Chosen and worth 300 points. A
+role that already holds it keeps it, even without the new achievements. The
+update stops with an error if a custom achievement uses the code of a new
+builtin one: delete it from `achievements.catalog` (with its awards) first.
 
 ## Usage
 
@@ -110,7 +158,7 @@ SET pg_achievements.notice_style = ascii;  -- [GOLD] instead of 🥇 [GOLD]
 | `achievements.version()` | any role | Extension, library and catalog versions |
 | `achievements.reset(role DEFAULT current_user)` | the role itself or a superuser | Removes counters and achievements of the role |
 | `achievements.forget_role(role)` | superuser | Removes the data of a role that no longer exists (`DROP ROLE` keeps it) |
-| `achievements.define(code, title, description, tier, counter_key, threshold)` | superuser | Adds a custom achievement on an existing counter; points follow the tier (10/25/50/100) |
+| `achievements.define(code, title, description, tier, counter_key, threshold)` | superuser | Adds a custom bronze, silver or gold achievement on an existing counter; points follow the tier (10/25/50) |
 | `achievements.grant(role, code)` | superuser | Awards an achievement by hand |
 
 A custom achievement becomes active within `flush_interval_ms` after the
@@ -193,19 +241,35 @@ counters keep the largest value seen.
 | `create_table`, `create_index`, `create_index_concurrently`, `create_function`, `create_trigger`, `create_extension`, `partition_create` | sum | the corresponding `CREATE` commands |
 | `drop_table`, `drop_database`, `truncate`, `vacuum_full` | sum | the corresponding commands; `DROP TABLE` counts every table dropped |
 | `terminate_backend` | sum | calls of `pg_terminate_backend` in queries that succeeded |
+| `rollback` / `rollback_to_savepoint` | sum | `ROLLBACK` of a transaction block / `ROLLBACK TO SAVEPOINT` |
+| `upsert` / `returning` / `merge` | sum | statements with `ON CONFLICT` / `RETURNING`, `MERGE` statements |
+| `comment_on`, `create_policy`, `refresh_matview_concurrently` | sum | `COMMENT ON`, `CREATE POLICY`, `REFRESH MATERIALIZED VIEW CONCURRENTLY` |
+| `skip_locked` / `grouping_sets` | sum | queries with `SKIP LOCKED` / `GROUPING SETS`, `ROLLUP` or `CUBE` |
+| `listen_notify` | sum | `LISTEN`, `NOTIFY` and calls of `pg_notify()` |
+| `err_undefined_table` / `err_division_by_zero` | sum | errors `42P01` / `22012` |
+| `cartesian_product` | sum | queries joining plain tables with no condition at all (`FROM a, b` or `CROSS JOIN` without `WHERE`) |
+| `not_in_subquery` | sum | queries with `NOT IN (SELECT ...)` |
+| `lock_exclusive` | sum | `LOCK TABLE` in `ACCESS EXCLUSIVE` mode (the default) |
+| `emoji_name` / `long_name` | sum | `CREATE TABLE` with an emoji in the name / with a name truncated to 63 bytes |
+| `new_year_query` | sum | statements in the first minute of January 1 |
+| `disable_attempt` | sum | `ALTER SYSTEM SET pg_achievements.enabled = off` |
+| `streak_days` | max | longest run of consecutive days with at least one statement |
+| `streak_state` | max | internal: last active day and the current run, packed into one number |
+| `rows_processed` | sum | rows returned or changed by top-level statements |
 
 Counting rules:
 
 - Only top-level statements count unless `track_nested` is on.
-- `update_no_where`, `delete_no_where`, `null_eq` and `select_star` count at
-  parse analysis, because the attempt is what matters. Everything else counts
-  only when the statement finishes successfully.
+- `update_no_where`, `delete_no_where`, `null_eq`, `select_star`,
+  `cartesian_product` and `not_in_subquery` count at parse analysis, because
+  the attempt is what matters. Everything else counts only when the
+  statement finishes successfully.
 - Statements that change nothing (`DROP TABLE IF EXISTS` on a missing table,
   `CREATE TABLE IF NOT EXISTS` or `CREATE EXTENSION IF NOT EXISTS` on an
   existing object) do not count.
 - The role is `current_user` (`GetUserId()`), so after `SET ROLE` events go to
   the new role.
-- Times of day use the session `timezone`.
+- Times of day and days (for `streak_days`) use the session `timezone`.
 - Background processes (autovacuum, replication, the worker itself) are never
   tracked.
 
@@ -253,7 +317,8 @@ make PGA_TESTING=1 installcheck      # pg_regress + TAP (needs --enable-tap-test
 ```
 
 `installcheck` starts its own temporary server, so no running instance is
-needed. The TAP tests cover restarts and crashes, `kill -9` of the worker,
+needed. The regression tests also check that updating from 1.0 gives the
+same catalog as a fresh install. The TAP tests cover restarts and crashes, `kill -9` of the worker,
 50 sessions racing for one award, `pg_dump`/restore, `pg_stat_statements` in
 both preload orders, hot standby and real deadlocks.
 

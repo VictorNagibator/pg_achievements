@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SQL = ROOT / "sql" / "pg_achievements--1.0.sql"
+SQL = ROOT / "sql" / "pg_achievements--1.1.sql"
 
 ROW = re.compile(
     r"^\('(?P<code>[a-z0-9_]+)',\s*'(?P<title>(?:[^']|'')*)',\s*"
@@ -20,8 +20,8 @@ ROW = re.compile(
 TIERS = [
     ("bronze", "Bronze", "first steps"),
     ("silver", "Silver", "mastering PostgreSQL features"),
-    ("gold", "Gold", "risky and rare events"),
-    ("platinum", "Platinum", "the stuff of legends"),
+    ("gold", "Gold", "risky, rare and legendary events"),
+    ("platinum", "Platinum", "collect them all"),
 ]
 
 
