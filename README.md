@@ -210,6 +210,10 @@ SELECT achievements.define('vacuum_fan', 'Vacuum Fan', 'Run VACUUM FULL 10 times
   `flush_interval_ms`, in its own transactions. Tracking therefore does not
   depend on the user's transaction: rolling back does not take an achievement
   back. After a crash at most `flush_interval_ms` of progress is lost.
+- The worker writes what a counter gained since its last write (or the new
+  maximum), not an absolute value, so rows that reach the tables from
+  elsewhere, such as a `pg_dump` being restored, are added to rather than
+  overwritten.
 - The worker is started by a small launcher, which restarts it 10 seconds
   after a failure. On a hot standby the worker never writes.
 
@@ -301,8 +305,11 @@ Counting rules:
   goes for statements cached by PL/pgSQL with `track_nested`.
 - Client-side meta-commands such as `\d` are invisible; the server only sees
   the SQL they send.
-- `pg_dump` saves progress and custom achievements. After restoring into a
-  running server, restart it so the worker reloads the tables.
+- `pg_dump` saves progress and custom achievements. Restoring into a running
+  server is safe: rows restored for a key the worker has already written are
+  merged with it (sums add up, maxima and the earlier award time win). Then
+  restart the server, so that shared memory, and with it the thresholds and
+  notices, see the restored progress.
 
 ## Testing
 

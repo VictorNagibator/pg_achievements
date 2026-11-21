@@ -24,6 +24,16 @@ else to get it.
 - Upgrade with `ALTER EXTENSION pg_achievements UPDATE` after installing the
   new version and restarting the server. Awards and counters are kept.
 
+Fixed:
+
+- Restoring a `pg_dump` into a running server could fail with a duplicate
+  key error, when the worker wrote counters or awards of the restoring
+  session between `CREATE EXTENSION` and the `COPY` of the dump, and the
+  worker could overwrite restored counters with its own values. The worker
+  now writes increments (or the new maximum for "max" counters), publishes
+  its bookkeeping only after a commit, and locks the tables while writing;
+  triggers merge restored rows with existing ones.
+
 ## 1.0.0 — 2026-11-21
 
 First release.

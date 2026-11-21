@@ -232,6 +232,61 @@ REVOKE ALL ON FUNCTION achievements.define(text, text, text, achievements.tier, 
 REVOKE ALL ON FUNCTION achievements.grant(name, text) FROM PUBLIC;
 
 ------------------------------------------------------------------------------
+-- Merging restored rows
+------------------------------------------------------------------------------
+
+-- pg_dump stores counters and awards as plain COPY data.  When a dump is
+-- restored into a running server, the worker may already have written rows
+-- for the same keys (the restoring session counts events too), and COPY
+-- would fail on the primary key.  These triggers merge such a row into the
+-- existing one instead: sum counters add up, max counters keep the larger
+-- value, an award keeps the earlier time.  The worker writes its own rows
+-- with ON CONFLICT and the same rules, so the triggers change nothing for it.
+
+CREATE FUNCTION achievements._merge_counter()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    UPDATE achievements.counters c
+    SET value = CASE WHEN EXISTS (SELECT 1 FROM achievements._counter_keys() k
+                                  WHERE k.key = NEW.counter_key AND k.kind = 'max')
+                     THEN greatest(c.value, NEW.value)
+                     ELSE c.value + NEW.value END,
+        updated_at = greatest(c.updated_at, NEW.updated_at)
+    WHERE c.role_name = NEW.role_name AND c.counter_key = NEW.counter_key;
+    IF FOUND THEN
+        RETURN NULL;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION achievements._merge_award()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+    UPDATE achievements.awarded a
+    SET awarded_at = least(a.awarded_at, NEW.awarded_at)
+    WHERE a.role_name = NEW.role_name AND a.code = NEW.code;
+    IF FOUND THEN
+        RETURN NULL;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+REVOKE ALL ON FUNCTION achievements._merge_counter(), achievements._merge_award() FROM PUBLIC;
+
+CREATE TRIGGER merge_existing BEFORE INSERT ON achievements.counters
+    FOR EACH ROW EXECUTE FUNCTION achievements._merge_counter();
+CREATE TRIGGER merge_existing BEFORE INSERT ON achievements.awarded
+    FOR EACH ROW EXECUTE FUNCTION achievements._merge_award();
+
+------------------------------------------------------------------------------
 -- Views (owned by the extension owner, so they can read the tables)
 ------------------------------------------------------------------------------
 

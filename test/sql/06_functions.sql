@@ -91,3 +91,43 @@ SELECT count(*) FROM achievements.counters WHERE role_name = 't_gone';
 SELECT achievements.forget_role('t_gone');
 SELECT count(*) FROM achievements.counters WHERE role_name = 't_gone';
 SELECT count(*) FROM achievements.awarded WHERE role_name = 't_gone';
+
+-- Rows restored by pg_dump while the server runs meet the rows the worker
+-- has written: they are merged (sums add up, maxima and the earlier award
+-- time win), and the worker keeps adding to them instead of overwriting.
+SELECT pga_test_role('t_merge');
+SET ROLE t_merge;
+\set QUIET on
+SET pg_achievements.notify = off;
+SELECT 1 FROM generate_series(1, 3);
+SELECT achievements.sync();
+\set QUIET off
+RESET ROLE;
+-- the last sync() of t_merge counts once it has finished: write it too
+SELECT achievements.sync();
+SELECT counter_key, value FROM achievements.counters
+WHERE role_name = 't_merge' AND counter_key IN ('stmt_select', 'rows_processed')
+ORDER BY counter_key;
+-- what COPY of a dump does: plain inserts, some of them for existing keys
+INSERT INTO achievements.counters (role_name, counter_key, value) VALUES
+    ('t_merge', 'stmt_select', 100),
+    ('t_merge', 'rows_processed', 1000),
+    ('t_merge', 'join_count_max', 5),
+    ('t_merge', 'cte_any', 7);
+INSERT INTO achievements.awarded (role_name, code, awarded_at) VALUES
+    ('t_merge', 'hello_world', '2000-01-01 00:00:00+00');
+SET ROLE t_merge;
+\set QUIET on
+-- one more SELECT with a CTE and a JOIN (join_count_max 1 < 5)
+WITH x AS (SELECT 1 AS id) SELECT count(*) FROM x JOIN x y USING (id);
+SELECT achievements.sync();
+RESET pg_achievements.notify;
+\set QUIET off
+RESET ROLE;
+SELECT achievements.sync();
+SELECT counter_key, value FROM achievements.counters
+WHERE role_name = 't_merge'
+  AND counter_key IN ('stmt_select', 'rows_processed', 'join_count_max', 'cte_any')
+ORDER BY counter_key;
+SELECT code, awarded_at AT TIME ZONE 'UTC' AS awarded_at_utc
+FROM achievements.awarded WHERE role_name = 't_merge' AND code = 'hello_world';

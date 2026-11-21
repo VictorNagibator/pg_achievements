@@ -14,8 +14,14 @@
  *	2. on the first cycle loads the catalog, counters and awards, merging
  *	   them with what backends have counted meanwhile;
  *	3. reloads the catalog snapshot if the table changed;
- *	4. unless in recovery, writes resets, queued awards and changed counter
- *	   values.
+ *	4. unless in recovery, writes resets, queued awards and what the
+ *	   counters gained since the last write.
+ *
+ * Counters are written as increments (sum counters) or with GREATEST (max
+ * counters), never as absolute values.  Rows that reach the tables from
+ * elsewhere, such as a pg_dump being restored while the server runs, are
+ * therefore added to rather than overwritten; the BEFORE INSERT triggers of
+ * the tables merge restored rows with the rows the worker has written.
  *
  *-------------------------------------------------------------------------
  */
@@ -27,6 +33,7 @@
 #include "access/tableam.h"
 #include "access/xact.h"
 #include "access/xlog.h"
+#include "catalog/namespace.h"
 #include "catalog/pg_database.h"
 #include "catalog/pg_type.h"
 #include "executor/spi.h"
@@ -36,11 +43,13 @@
 #include "postmaster/interrupt.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
+#include "storage/lmgr.h"
 #include "storage/proc.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/hsearch.h"
+#include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
@@ -60,11 +69,22 @@ static PgaRoleEntry **resets_done = NULL;
 static int	nresets_done = 0;
 
 /*
- * The "persisted" bookkeeping is updated while writing.  If the transaction
- * fails it is cleared, so the next cycle rewrites everything (upserts of
- * absolute values and ON CONFLICT DO NOTHING inserts are idempotent).
+ * What the tables hold for each role ("persisted" values and awards).  A
+ * cycle works on copies, and pga_publish_progress() copies them back into
+ * shared memory only after the transaction has committed: since counters
+ * are written as increments, bookkeeping that ran ahead of a failed
+ * transaction would lose events, and bookkeeping that lagged behind a
+ * committed one would count them twice.
  */
-static bool need_rewrite = false;
+typedef struct PgaStaged
+{
+	PgaRoleEntry *entry;
+	int64		persisted[PGA_NUM_COUNTERS];
+	uint64		persisted_awarded[PGA_AWARD_WORDS];
+} PgaStaged;
+
+static PgaStaged *staged = NULL;
+static int	nstaged = 0;
 
 /* memory of one cycle; survives the transaction so PG_CATCH can use it */
 static MemoryContext cycle_cxt = NULL;
@@ -519,46 +539,130 @@ pga_write_award(PgaRoleEntry *entry, int slot, TimestampTz ts, bool use_ts)
 			 3, types, values, SPI_OK_INSERT);
 }
 
+/* Staged bookkeeping of a role in the current cycle, or NULL. */
+static PgaStaged *
+pga_staged_for(PgaRoleEntry *entry)
+{
+	for (int i = 0; i < nstaged; i++)
+	{
+		if (staged[i].entry == entry)
+			return &staged[i];
+	}
+	return NULL;
+}
+
+/* Write one counter: an increment for "sum", the larger value for "max". */
+static void
+pga_write_counter(PgaRoleEntry *entry, int c, int64 amount)
+{
+	Oid			types[3] = {NAMEOID, TEXTOID, INT8OID};
+	Datum		values[3];
+
+	values[0] = NameGetDatum(&entry->rolname);
+	values[1] = CStringGetTextDatum(pga_counter_info[c].key);
+	values[2] = Int64GetDatum(amount);
+
+	if (pga_counter_info[c].kind == PGA_SUM)
+		pga_exec("INSERT INTO achievements.counters AS c "
+				 "(role_name, counter_key, value, updated_at) "
+				 "VALUES ($1, $2, $3, now()) "
+				 "ON CONFLICT (role_name, counter_key) DO UPDATE "
+				 "SET value = c.value + EXCLUDED.value, updated_at = EXCLUDED.updated_at",
+				 3, types, values, SPI_OK_INSERT);
+	else
+		pga_exec("INSERT INTO achievements.counters AS c "
+				 "(role_name, counter_key, value, updated_at) "
+				 "VALUES ($1, $2, $3, now()) "
+				 "ON CONFLICT (role_name, counter_key) DO UPDATE "
+				 "SET value = GREATEST(c.value, EXCLUDED.value), "
+				 "updated_at = EXCLUDED.updated_at",
+				 3, types, values, SPI_OK_INSERT);
+}
+
+/*
+ * Lock the counters and awarded tables against inserts of other sessions
+ * until the end of the transaction.  A restore running COPY into the tables
+ * then waits for this cycle (or the cycle is skipped while the COPY runs),
+ * and the triggers of the tables see the rows of the worker and merge with
+ * them instead of failing on the primary key.  Normally the lock is not
+ * waited for, because a restore in a single transaction holds its locks
+ * until the very end; the last cycle before exit waits, so that a clean
+ * shutdown loses nothing (a shutdown terminates the restore anyway).
+ */
+static bool
+pga_lock_tables(bool wait)
+{
+	Oid			nsp = get_namespace_oid(PGA_SCHEMA, false);
+	const char *const tables[] = {"counters", "awarded"};
+
+	for (int i = 0; i < lengthof(tables); i++)
+	{
+		Oid			relid = get_relname_relid(tables[i], nsp);
+
+		if (!OidIsValid(relid))
+			elog(ERROR, "pg_achievements: table %s.%s is missing", PGA_SCHEMA, tables[i]);
+		if (wait)
+			LockRelationOid(relid, ShareRowExclusiveLock);
+		else if (!ConditionalLockRelationOid(relid, ShareRowExclusiveLock))
+			return false;
+	}
+	return true;
+}
+
 /*
  * Write everything that changed since the last cycle, in three steps:
  * resets requested by achievements.reset(), queued awards with their exact
- * time, then awards missing from the queue and changed counter values.
- * Rows with value 0 are deleted rather than stored.
+ * time, then awards missing from the queue and what the counters gained.
+ * The bookkeeping goes to the staged copies, see PgaStaged.  Returns false
+ * if the tables are busy and nothing was written.
  */
-static void
-pga_write_progress(void)
+static bool
+pga_write_progress(bool wait)
 {
 	HASH_SEQ_STATUS status;
 	PgaRoleEntry *entry;
-	PgaRoleEntry **entries;
-	int			nentries = 0;
-	int			maxentries = 64;
 	PgaQueuedAward *queue;
 	int			nqueue;
+	int			maxentries = 64;
 
-	/* snapshot the entry list; entries are never removed */
-	entries = palloc(sizeof(PgaRoleEntry *) * maxentries);
+	if (!pga_lock_tables(wait))
+		return false;
+
+	/*
+	 * Take the queued awards first: a role has an entry before it can
+	 * queue an award, so every role in the queue is in the snapshot below.
+	 */
+	queue = palloc(sizeof(PgaQueuedAward) * PGA_AWARD_QUEUE_SIZE);
+	nqueue = pga_drain_queue(queue, PGA_AWARD_QUEUE_SIZE);
+
+	/* snapshot the entry list with the bookkeeping; entries are never removed */
+	staged = MemoryContextAlloc(cycle_cxt, sizeof(PgaStaged) * maxentries);
+	nstaged = 0;
 	LWLockAcquire(pga_shared->lock, LW_SHARED);
 	hash_seq_init(&status, pga_roles);
 	while ((entry = hash_seq_search(&status)) != NULL)
 	{
-		if (nentries >= maxentries)
+		if (nstaged >= maxentries)
 		{
 			maxentries *= 2;
-			entries = repalloc(entries, sizeof(PgaRoleEntry *) * maxentries);
+			staged = repalloc(staged, sizeof(PgaStaged) * maxentries);
 		}
-		entries[nentries++] = entry;
+		staged[nstaged].entry = entry;
+		memcpy(staged[nstaged].persisted, entry->persisted, sizeof(entry->persisted));
+		memcpy(staged[nstaged].persisted_awarded, entry->persisted_awarded,
+			   sizeof(entry->persisted_awarded));
+		nstaged++;
 	}
 	LWLockRelease(pga_shared->lock);
 
 	/* 1. resets requested by achievements.reset() / forget_role() */
-	resets_done = MemoryContextAlloc(cycle_cxt, sizeof(PgaRoleEntry *) * Max(nentries, 1));
-	for (int i = 0; i < nentries; i++)
+	resets_done = MemoryContextAlloc(cycle_cxt, sizeof(PgaRoleEntry *) * Max(nstaged, 1));
+	for (int i = 0; i < nstaged; i++)
 	{
 		Oid			types[1] = {NAMEOID};
 		Datum		values[1];
 
-		entry = entries[i];
+		entry = staged[i].entry;
 		if (pg_atomic_exchange_u32(&entry->reset_requested, 0) == 0)
 			continue;
 
@@ -568,83 +672,101 @@ pga_write_progress(void)
 		pga_exec("DELETE FROM achievements.awarded WHERE role_name = $1",
 				 1, types, values, SPI_OK_DELETE);
 		resets_done[nresets_done++] = entry;
-		memset(entry->persisted, 0, sizeof(entry->persisted));
-		memset(entry->persisted_awarded, 0, sizeof(entry->persisted_awarded));
+		memset(staged[i].persisted, 0, sizeof(staged[i].persisted));
+		memset(staged[i].persisted_awarded, 0, sizeof(staged[i].persisted_awarded));
 	}
 
 	/* 2. queued awards, with their exact time */
-	queue = palloc(sizeof(PgaQueuedAward) * PGA_AWARD_QUEUE_SIZE);
-	nqueue = pga_drain_queue(queue, PGA_AWARD_QUEUE_SIZE);
 	for (int i = 0; i < nqueue; i++)
 	{
 		PgaQueuedAward *qa = &queue[i];
 		uint64		bit = UINT64CONST(1) << (qa->slot % 64);
+		PgaStaged  *st;
 
 		entry = pga_find_role(NameStr(qa->rolname), false);
 		if (entry == NULL || qa->slot >= pga_shared->catalog_size)
 			continue;
+		st = pga_staged_for(entry);
+		if (st == NULL)
+			continue;			/* cannot happen, see above; step 3 would catch it */
 		if (!pga_bit_test(entry->awarded, qa->slot))
 			continue;			/* reset meanwhile */
-		if (entry->persisted_awarded[qa->slot / 64] & bit)
+		if (st->persisted_awarded[qa->slot / 64] & bit)
 			continue;
 		pga_write_award(entry, qa->slot, qa->awarded_at, true);
-		entry->persisted_awarded[qa->slot / 64] |= bit;
+		st->persisted_awarded[qa->slot / 64] |= bit;
 	}
 
 	/* 3. awards missing from the queue (overflow), and counter values */
-	for (int i = 0; i < nentries; i++)
+	for (int i = 0; i < nstaged; i++)
 	{
-		entry = entries[i];
+		PgaStaged  *st = &staged[i];
+
+		entry = st->entry;
 
 		for (int s = 0; s < pga_shared->catalog_size; s++)
 		{
 			uint64		bit = UINT64CONST(1) << (s % 64);
 
 			if (pga_bit_test(entry->awarded, s) &&
-				!(entry->persisted_awarded[s / 64] & bit))
+				!(st->persisted_awarded[s / 64] & bit))
 			{
 				pga_write_award(entry, s, 0, false);
-				entry->persisted_awarded[s / 64] |= bit;
+				st->persisted_awarded[s / 64] |= bit;
 			}
 		}
 
 		for (int c = 0; c < PGA_NUM_COUNTERS; c++)
 		{
 			int64		value = (int64) pg_atomic_read_u64(&entry->values[c]);
-			Oid			types[3] = {NAMEOID, TEXTOID, INT8OID};
-			Datum		values[3];
 
-			if (value == entry->persisted[c])
+			/*
+			 * Counters only grow.  A smaller value means that a reset has
+			 * zeroed shared memory and its request has not been processed
+			 * yet: the next cycle deletes the rows and writes from zero.
+			 */
+			if (value <= st->persisted[c])
 				continue;
 
-			values[0] = NameGetDatum(&entry->rolname);
-			values[1] = CStringGetTextDatum(pga_counter_info[c].key);
-			values[2] = Int64GetDatum(value);
-
-			if (value == 0)
-				pga_exec("DELETE FROM achievements.counters "
-						 "WHERE role_name = $1 AND counter_key = $2",
-						 2, types, values, SPI_OK_DELETE);
-			else
-				pga_exec("INSERT INTO achievements.counters AS c "
-						 "(role_name, counter_key, value, updated_at) "
-						 "VALUES ($1, $2, $3, now()) "
-						 "ON CONFLICT (role_name, counter_key) DO UPDATE "
-						 "SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
-						 3, types, values, SPI_OK_INSERT);
-			entry->persisted[c] = value;
+			pga_write_counter(entry, c,
+							  pga_counter_info[c].kind == PGA_SUM ?
+							  value - st->persisted[c] : value);
+			st->persisted[c] = value;
 		}
 	}
+	return true;
+}
+
+/*
+ * After the commit of a cycle: the tables now hold what the staged
+ * bookkeeping says, publish it for the next cycle.
+ */
+static void
+pga_publish_progress(void)
+{
+	for (int i = 0; i < nstaged; i++)
+	{
+		PgaRoleEntry *entry = staged[i].entry;
+
+		memcpy(entry->persisted, staged[i].persisted, sizeof(entry->persisted));
+		memcpy(entry->persisted_awarded, staged[i].persisted_awarded,
+			   sizeof(entry->persisted_awarded));
+	}
+	nstaged = 0;
 }
 
 /*
  * One cycle in one transaction.  Errors propagate to pga_worker_main, which
- * aborts the transaction and sets need_rewrite.
+ * aborts the transaction; the staged bookkeeping of the failed cycle is
+ * simply dropped, so the next cycle writes the same changes again.
+ * Returns false if writing had to be skipped (busy tables), so that
+ * achievements.sync() keeps waiting.  "last" is the cycle before exit.
  */
-static void
-pga_cycle(void)
+static bool
+pga_cycle(bool last)
 {
 	bool		exists;
+	bool		complete = true;
 	bool		ready = pg_atomic_read_u32(&pga_shared->ready) != 0;
 
 	SetCurrentStatementStartTimestamp();
@@ -675,23 +797,6 @@ pga_cycle(void)
 	{
 		pga_load_catalog();
 
-		if (need_rewrite && ready)
-		{
-			/* forget the bookkeeping of the failed cycle, keep live values */
-			HASH_SEQ_STATUS status;
-			PgaRoleEntry *entry;
-
-			LWLockAcquire(pga_shared->lock, LW_SHARED);
-			hash_seq_init(&status, pga_roles);
-			while ((entry = hash_seq_search(&status)) != NULL)
-			{
-				memset(entry->persisted, 0, sizeof(entry->persisted));
-				memset(entry->persisted_awarded, 0, sizeof(entry->persisted_awarded));
-			}
-			LWLockRelease(pga_shared->lock);
-		}
-		need_rewrite = false;
-
 		if (!ready)
 		{
 			pga_load_progress();
@@ -699,14 +804,16 @@ pga_cycle(void)
 		}
 
 		if (!RecoveryInProgress())
-			pga_write_progress();
+			complete = pga_write_progress(last);
 	}
 
 	SPI_finish();
 	PopActiveSnapshot();
 	CommitTransactionCommand();
+	pga_publish_progress();
 	pgstat_report_stat(false);
 	pgstat_report_activity(STATE_IDLE, NULL);
+	return complete;
 }
 
 /* Do not leave a stale latch pointer behind for backends to set. */
@@ -747,6 +854,7 @@ pga_worker_main(Datum main_arg)
 	{
 		uint64		request;
 		bool		ok = false;
+		bool		complete = false;
 		bool		stopping = got_sigterm;
 		MemoryContext oldcxt;
 
@@ -761,11 +869,13 @@ pga_worker_main(Datum main_arg)
 		MemoryContextReset(cycle_cxt);
 		resets_done = NULL;
 		nresets_done = 0;
+		staged = NULL;
+		nstaged = 0;
 		oldcxt = MemoryContextSwitchTo(cycle_cxt);
 
 		PG_TRY();
 		{
-			pga_cycle();
+			complete = pga_cycle(stopping);
 			ok = true;
 		}
 		PG_CATCH();
@@ -776,13 +886,13 @@ pga_worker_main(Datum main_arg)
 			AbortCurrentTransaction();
 			for (int i = 0; i < nresets_done; i++)
 				pg_atomic_write_u32(&resets_done[i]->reset_requested, 1);
-			need_rewrite = true;
+			nstaged = 0;		/* the bookkeeping of this cycle is void */
 		}
 		PG_END_TRY();
 
 		MemoryContextSwitchTo(oldcxt);
 
-		if (ok)
+		if (ok && complete)
 			pg_atomic_write_u64(&pga_shared->flush_done, request);
 
 		if (stopping)

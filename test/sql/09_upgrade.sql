@@ -42,6 +42,12 @@ SELECT proname FROM (
      FROM pg_proc p WHERE p.pronamespace = 'achievements'::regnamespace
      EXCEPT TABLE fresh_functions)) d;
 
+-- the merge triggers for restored rows exist after the update too
+SELECT tgrelid::regclass AS "table", tgname FROM pg_trigger
+WHERE tgrelid IN ('achievements.counters'::regclass, 'achievements.awarded'::regclass)
+  AND NOT tgisinternal
+ORDER BY 1, 2;
+
 -- awards are kept, with the new tiers and points
 SET ROLE t_upgrade;
 SELECT code, tier, title, points FROM achievements.my ORDER BY code;
