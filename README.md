@@ -61,6 +61,21 @@ HINT:  Go outside, touch grass, run VACUUM.
 
 There are no other dependencies.
 
+## Try it in Docker
+
+A PostgreSQL 18 server with the extension preloaded and created in the
+`postgres` database:
+
+```sh
+docker run -d --name pga -e POSTGRES_PASSWORD=secret ghcr.io/victornagibator/pg_achievements
+docker exec -it pga psql -U postgres
+```
+
+Other PostgreSQL versions are tagged `pg16` to `pg19`, for example
+`ghcr.io/victornagibator/pg_achievements:pg17`. To build the image from a
+checkout: `docker build -t pg_achievements .` (add
+`--build-arg PG_MAJOR=17` for another version).
+
 ## Installation
 
 From [PGXN](https://pgxn.org/dist/pg_achievements/):

@@ -13,6 +13,8 @@ Achievements become social.
 - The notice tells how rare a fresh achievement is: "Unlocked by 3 of 14
   players (21%)." or "You are the first of 14 players to unlock it."
 - PostgreSQL 19 is supported.
+- A Docker image to try it out: `ghcr.io/victornagibator/pg_achievements`,
+  tagged `pg16` to `pg19`.
 - Upgrade with `ALTER EXTENSION pg_achievements UPDATE` after installing the
   new version and restarting the server. The catalog does not change.
 

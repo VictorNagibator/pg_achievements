@@ -1,0 +1,12 @@
+# keep the build context to the sources
+.git
+.github
+*.o
+*.so
+*.bc
+*.zip
+tmp_check/
+tmp_regress/
+test/results/
+test/regression.*
+log/
