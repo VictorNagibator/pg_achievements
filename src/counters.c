@@ -22,6 +22,8 @@
 #include "miscadmin.h"
 #include "storage/ipc.h"
 #include "utils/acl.h"
+#include "utils/inval.h"
+#include "utils/syscache.h"
 #include "utils/timestamp.h"
 
 bool		pga_session_disabled = false;
@@ -31,6 +33,15 @@ static bool cur_role_valid = false;
 static Oid	cur_role_oid = InvalidOid;
 static NameData cur_role;
 static PgaRoleEntry *cur_entry = NULL;
+
+/*
+ * Set when pg_authid changes: the name of cur_role_oid may be different
+ * now (ALTER ROLE ... RENAME from another session).  Progress is kept by
+ * role name, as in the tables and the views (current_user), so the next
+ * sync looks the name up again.
+ */
+static bool cur_role_stale = false;
+static bool role_callback_registered = false;
 
 /* unflushed local changes */
 static int64 delta[PGA_NUM_COUNTERS];
@@ -110,6 +121,13 @@ pga_current_entry(void)
 	return cur_entry;
 }
 
+/* Syscache callback of pg_authid: a role may have been renamed. */
+static void
+pga_role_changed(Datum arg, int cacheid, uint32 hashvalue)
+{
+	cur_role_stale = true;
+}
+
 /* Switch the local state to another role, flushing the old deltas. */
 void
 pga_set_role_name(const char *rolname)
@@ -135,6 +153,11 @@ pga_set_role_name(const char *rolname)
 		before_shmem_exit(pga_on_exit, (Datum) 0);
 		exit_callback_registered = true;
 	}
+	if (!role_callback_registered)
+	{
+		CacheRegisterSyscacheCallback(AUTHOID, pga_role_changed, (Datum) 0);
+		role_callback_registered = true;
+	}
 }
 
 /*
@@ -153,11 +176,13 @@ pga_sync_role(void)
 
 	if (!OidIsValid(uid))
 		return false;
-	if (cur_role_valid && uid == cur_role_oid)
+	if (cur_role_valid && uid == cur_role_oid && !cur_role_stale)
 		return true;
 	if (!IsTransactionState())
 		return cur_role_valid;
 
+	/* cleared first: an invalidation during the lookup sets it again */
+	cur_role_stale = false;
 	name = GetUserNameFromId(uid, true);
 	if (name == NULL)
 		return false;
