@@ -40,7 +40,9 @@
 #include "utils/datetime.h"
 #include "utils/elog.h"
 #include "utils/fmgroids.h"
+#include "utils/hsearch.h"
 #include "utils/lsyscache.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/timestamp.h"
 
