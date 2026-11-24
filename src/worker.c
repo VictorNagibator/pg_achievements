@@ -361,8 +361,14 @@ pga_copy_text(char *dst, const char *src, int size)
 
 /*
  * Read achievements.catalog into a new snapshot.  Existing codes keep their
- * slots; removed codes stay in place as inactive; new codes get new slots.
- * Publishes the snapshot only if something changed.
+ * slots; removed codes stay in place as inactive and deleted; new codes get
+ * new slots.  Publishes the snapshot only if something changed.
+ *
+ * A deleted code is taken away from every role on each cycle: the foreign
+ * key has deleted its awarded rows, and if the code is defined again it
+ * gets its old slot back, which must not look earned.  Doing it on every
+ * cycle, not just once, also catches a backend that awarded the code from
+ * a catalog copy older than the deletion.
  */
 static void
 pga_load_catalog(void)
@@ -442,9 +448,10 @@ pga_load_catalog(void)
 	/* codes deleted from the table */
 	for (int i = 0; i < size; i++)
 	{
-		if (!seen[i] && snap[i].active)
+		if (!seen[i] && snap[i].used && !snap[i].deleted)
 		{
 			snap[i].active = false;
+			snap[i].deleted = true;
 			changed = true;
 		}
 	}
@@ -457,6 +464,12 @@ pga_load_catalog(void)
 		pga_shared->catalog_encoding = GetDatabaseEncoding();
 		pg_atomic_fetch_add_u32(&pga_shared->catalog_version, 1);
 		LWLockRelease(pga_shared->lock);
+	}
+
+	for (int i = 0; i < size; i++)
+	{
+		if (snap[i].deleted)
+			pga_clear_slot_everywhere(i);
 	}
 }
 

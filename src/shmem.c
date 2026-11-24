@@ -249,6 +249,29 @@ pga_reset_all_entries(void)
 }
 
 /*
+ * Worker only: take an achievement away from every role, in shared memory
+ * and in the bookkeeping of what the tables hold.  Used for codes deleted
+ * from the catalog, whose awarded rows the foreign key has deleted: a code
+ * defined again later gets its old slot back, and must start unearned.
+ */
+void
+pga_clear_slot_everywhere(int slot)
+{
+	HASH_SEQ_STATUS status;
+	PgaRoleEntry *entry;
+	uint64		bit = UINT64CONST(1) << (slot % 64);
+
+	LWLockAcquire(pga_shared->lock, LW_SHARED);
+	hash_seq_init(&status, pga_roles);
+	while ((entry = hash_seq_search(&status)) != NULL)
+	{
+		pga_bit_clear(entry->awarded, slot);
+		entry->persisted_awarded[slot / 64] &= ~bit;
+	}
+	LWLockRelease(pga_shared->lock);
+}
+
+/*
  * Put a fresh award into the queue.  When the queue is full the award is
  * still recorded in the role bitmap, and the worker writes it with the time
  * of the flush instead of the exact time.

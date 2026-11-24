@@ -162,6 +162,7 @@ typedef struct PgaCatalogSlot
 {
 	bool		used;			/* slot holds a code */
 	bool		active;			/* present in the table and enabled */
+	bool		deleted;		/* the code is no longer in the table */
 	bool		builtin;
 	bool		secret;
 	int16		tier;			/* PgaTier */
@@ -238,6 +239,7 @@ extern void pga_purge_queue_role(const char *rolname);
 extern int	pga_drain_queue(PgaQueuedAward *out, int max);
 extern void pga_reset_role_entry(PgaRoleEntry *entry);
 extern void pga_reset_all_entries(void);
+extern void pga_clear_slot_everywhere(int slot);
 extern void pga_slot_rarity(int slot, int *holders, int *players);
 
 static inline bool

@@ -77,6 +77,18 @@ RESET ROLE;
 -- custom achievements do not change the meta ones
 SELECT count(*) FROM achievements.catalog WHERE builtin;
 DELETE FROM achievements.catalog WHERE code = 'truncator';
+SELECT achievements.sync();
+-- defined again, the deleted achievement starts unearned and can be won
+SELECT achievements.define('truncator', 'Truncator', 'TRUNCATE 4 tables.', 'silver', 'truncate', 4);
+SELECT achievements.sync();
+SET ROLE t_fn;
+SELECT unlocked FROM achievements.progress WHERE code = 'truncator';
+TRUNCATE fn_t;
+TRUNCATE fn_t;
+SELECT achievements.sync();
+SELECT code FROM achievements.my WHERE code = 'truncator';
+RESET ROLE;
+DELETE FROM achievements.catalog WHERE code = 'truncator';
 
 -- texts of any length the table accepts are shown whole: 127 and 255
 -- Cyrillic letters take 254 and 509 bytes (the full stop is ASCII)

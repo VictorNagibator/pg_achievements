@@ -229,6 +229,51 @@ SELECT count(*) FROM achievements.catalog WHERE builtin;
 (1 row)
 
 DELETE FROM achievements.catalog WHERE code = 'truncator';
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+-- defined again, the deleted achievement starts unearned and can be won
+SELECT achievements.define('truncator', 'Truncator', 'TRUNCATE 4 tables.', 'silver', 'truncate', 4);
+ define 
+--------
+ 
+(1 row)
+
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+SET ROLE t_fn;
+SELECT unlocked FROM achievements.progress WHERE code = 'truncator';
+ unlocked 
+----------
+ f
+(1 row)
+
+TRUNCATE fn_t;
+TRUNCATE fn_t;
+NOTICE:  [SILVER] Achievement unlocked: Truncator (+25)
+DETAIL:  TRUNCATE 4 tables. Total score: 145.
+You are the first of 7 players to unlock it.
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+SELECT code FROM achievements.my WHERE code = 'truncator';
+   code    
+-----------
+ truncator
+(1 row)
+
+RESET ROLE;
+DELETE FROM achievements.catalog WHERE code = 'truncator';
 -- texts of any length the table accepts are shown whole: 127 and 255
 -- Cyrillic letters take 254 and 509 bytes (the full stop is ASCII)
 SELECT achievements.define('long_ru', repeat('Ж', 127), repeat('Ы', 254) || '.',
@@ -247,10 +292,10 @@ SELECT achievements.sync();
 SET ROLE t_fn;
 COMMENT ON TABLE fn_t IS 'commented';
 NOTICE:  [BRONZE] Achievement unlocked: Self-Documenting (+10)
-DETAIL:  Describe an object with COMMENT ON. Total score: 155.
+DETAIL:  Describe an object with COMMENT ON. Total score: 130.
 Unlocked by 2 of 7 players (29%).
 NOTICE:  [BRONZE] Achievement unlocked: ЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ (+10)
-DETAIL:  ЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫ. Total score: 165.
+DETAIL:  ЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫ. Total score: 140.
 You are the first of 7 players to unlock it.
 RESET ROLE;
 -- the texts come from a UTF8 database: in a LATIN1 one, letters it cannot
@@ -276,10 +321,10 @@ SET ROLE t_fn;
 BEGIN;
 LOCK TABLE fn_l;
 NOTICE:  [GOLD] Achievement unlocked: Lock Hoarder (+50)
-DETAIL:  Take an ACCESS EXCLUSIVE lock with LOCK TABLE. Total score: 215.
+DETAIL:  Take an ACCESS EXCLUSIVE lock with LOCK TABLE. Total score: 190.
 Unlocked by 2 of 7 players (29%).
 NOTICE:  [BRONZE] Achievement unlocked: ????? (+10)
-DETAIL:  ????? ?????. Total score: 225.
+DETAIL:  ????? ?????. Total score: 200.
 You are the first of 7 players to unlock it.
 COMMIT;
 \c contrib_regression
