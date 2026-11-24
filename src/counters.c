@@ -18,6 +18,7 @@
 #include "pg_achievements.h"
 
 #include "access/xact.h"
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "storage/ipc.h"
 #include "utils/acl.h"
@@ -48,6 +49,7 @@ static uint32 local_catalog_version = 0;
 static bool local_catalog_loaded = false;
 static PgaCatalogSlot local_catalog[PGA_MAX_CATALOG];
 static int	local_catalog_size = 0;
+static int	local_catalog_encoding = PG_SQL_ASCII;
 
 static void pga_refresh_cache(void);
 static void pga_check_counter(PgaCounter c);
@@ -179,6 +181,7 @@ pga_load_local_catalog(void)
 
 	LWLockAcquire(pga_shared->lock, LW_SHARED);
 	local_catalog_size = pga_shared->catalog_size;
+	local_catalog_encoding = pga_shared->catalog_encoding;
 	memcpy(local_catalog, pga_shared->catalog,
 		   sizeof(PgaCatalogSlot) * local_catalog_size);
 	local_catalog_version = pg_atomic_read_u32(&pga_shared->catalog_version);
@@ -194,6 +197,13 @@ pga_local_slot(int slot)
 	if (slot < 0 || slot >= local_catalog_size)
 		return NULL;
 	return &local_catalog[slot];
+}
+
+/* Encoding of the texts in the local catalog copy. */
+int
+pga_local_catalog_encoding(void)
+{
+	return local_catalog_encoding;
 }
 
 /*

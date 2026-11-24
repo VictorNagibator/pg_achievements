@@ -78,6 +78,33 @@ RESET ROLE;
 SELECT count(*) FROM achievements.catalog WHERE builtin;
 DELETE FROM achievements.catalog WHERE code = 'truncator';
 
+-- texts of any length the table accepts are shown whole: 127 and 255
+-- Cyrillic letters take 254 and 509 bytes (the full stop is ASCII)
+SELECT achievements.define('long_ru', repeat('Ж', 127), repeat('Ы', 254) || '.',
+                           'bronze', 'comment_on', 1);
+SELECT achievements.sync();
+SET ROLE t_fn;
+COMMENT ON TABLE fn_t IS 'commented';
+RESET ROLE;
+-- the texts come from a UTF8 database: in a LATIN1 one, letters it cannot
+-- show become "?" instead of garbage
+SELECT achievements.define('ru_lock', 'Замок', 'Взять замок.', 'bronze', 'lock_exclusive', 1);
+SELECT achievements.sync();
+CREATE DATABASE pga_latin1 TEMPLATE template0 ENCODING 'LATIN1';
+\c pga_latin1
+SET client_encoding = 'UTF8';
+CREATE TABLE fn_l (id int);
+GRANT ALL ON fn_l TO t_fn;
+SET ROLE t_fn;
+BEGIN;
+LOCK TABLE fn_l;
+COMMIT;
+\c contrib_regression
+SET pg_achievements.notify = off;
+DROP DATABASE pga_latin1;
+RESET pg_achievements.notify;
+DELETE FROM achievements.catalog WHERE code IN ('long_ru', 'ru_lock');
+
 -- forget_role refuses existing roles, then cleans up a dropped one
 SELECT achievements.forget_role('t_other');
 SELECT pga_test_role('t_gone');

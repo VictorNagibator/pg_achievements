@@ -229,6 +229,64 @@ SELECT count(*) FROM achievements.catalog WHERE builtin;
 (1 row)
 
 DELETE FROM achievements.catalog WHERE code = 'truncator';
+-- texts of any length the table accepts are shown whole: 127 and 255
+-- Cyrillic letters take 254 and 509 bytes (the full stop is ASCII)
+SELECT achievements.define('long_ru', repeat('Ж', 127), repeat('Ы', 254) || '.',
+                           'bronze', 'comment_on', 1);
+ define 
+--------
+ 
+(1 row)
+
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+SET ROLE t_fn;
+COMMENT ON TABLE fn_t IS 'commented';
+NOTICE:  [BRONZE] Achievement unlocked: Self-Documenting (+10)
+DETAIL:  Describe an object with COMMENT ON. Total score: 155.
+Unlocked by 2 of 7 players (29%).
+NOTICE:  [BRONZE] Achievement unlocked: ЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ (+10)
+DETAIL:  ЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫЫ. Total score: 165.
+You are the first of 7 players to unlock it.
+RESET ROLE;
+-- the texts come from a UTF8 database: in a LATIN1 one, letters it cannot
+-- show become "?" instead of garbage
+SELECT achievements.define('ru_lock', 'Замок', 'Взять замок.', 'bronze', 'lock_exclusive', 1);
+ define 
+--------
+ 
+(1 row)
+
+SELECT achievements.sync();
+ sync 
+------
+ t
+(1 row)
+
+CREATE DATABASE pga_latin1 TEMPLATE template0 ENCODING 'LATIN1';
+\c pga_latin1
+SET client_encoding = 'UTF8';
+CREATE TABLE fn_l (id int);
+GRANT ALL ON fn_l TO t_fn;
+SET ROLE t_fn;
+BEGIN;
+LOCK TABLE fn_l;
+NOTICE:  [GOLD] Achievement unlocked: Lock Hoarder (+50)
+DETAIL:  Take an ACCESS EXCLUSIVE lock with LOCK TABLE. Total score: 215.
+Unlocked by 2 of 7 players (29%).
+NOTICE:  [BRONZE] Achievement unlocked: ????? (+10)
+DETAIL:  ????? ?????. Total score: 225.
+You are the first of 7 players to unlock it.
+COMMIT;
+\c contrib_regression
+SET pg_achievements.notify = off;
+DROP DATABASE pga_latin1;
+RESET pg_achievements.notify;
+DELETE FROM achievements.catalog WHERE code IN ('long_ru', 'ru_lock');
 -- forget_role refuses existing roles, then cleans up a dropped one
 SELECT achievements.forget_role('t_other');
 ERROR:  role "t_other" still exists

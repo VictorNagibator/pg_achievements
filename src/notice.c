@@ -14,6 +14,7 @@
  */
 #include "pg_achievements.h"
 
+#include "common/string.h"
 #include "lib/stringinfo.h"
 #include "mb/pg_wchar.h"
 
@@ -75,6 +76,45 @@ pga_use_emoji(void)
 		pg_get_client_encoding() == PG_UTF8;
 }
 
+/*
+ * A text of the catalog in the encoding of the current database.  The
+ * catalog lives in pg_achievements.database, but notices go out from every
+ * database of the cluster, and a server message must be in the encoding of
+ * its own database: bytes of another encoding come out garbled, or make the
+ * conversion to the client encoding fail.  A real conversion needs catalog
+ * lookups, which are not allowed while a transaction commits, where most
+ * notices are sent; so when the encodings differ, every non-ASCII character
+ * is shown as "?".  The builtin texts are plain ASCII anyway.
+ */
+static const char *
+pga_catalog_text(const char *src)
+{
+	int			encoding = pga_local_catalog_encoding();
+	char	   *dst;
+	char	   *d;
+
+	if (encoding == GetDatabaseEncoding() || pg_is_ascii(src))
+		return src;
+
+	dst = d = palloc(strlen(src) + 1);
+	while (*src)
+	{
+		if (IS_HIGHBIT_SET(*src))
+		{
+			int			len = pg_encoding_mblen(encoding, src);
+
+			*d++ = '?';
+			/* never step over the terminating zero */
+			for (int i = 0; i < len && *src; i++)
+				src++;
+		}
+		else
+			*d++ = *src++;
+	}
+	*d = '\0';
+	return dst;
+}
+
 /* Description with a full stop at the end, for the DETAIL line. */
 static const char *
 pga_sentence_end(const char *desc)
@@ -111,9 +151,12 @@ pga_send_platinum_notice(PgaRoleEntry *entry, const PgaCatalogSlot *slot,
 {
 	StringInfoData detail;
 
+	const char *title = pga_catalog_text(slot->title);
+	const char *desc = pga_catalog_text(slot->description);
+
 	initStringInfo(&detail);
 	appendStringInfo(&detail, "%s%s Total score: " INT64_FORMAT ".\n",
-					 slot->description, pga_sentence_end(slot->description),
+					 desc, pga_sentence_end(desc),
 					 pga_total_score(entry));
 	appendStringInfoString(&detail, slonik_art);
 	appendStringInfo(&detail,
@@ -128,7 +171,7 @@ pga_send_platinum_notice(PgaRoleEntry *entry, const PgaCatalogSlot *slot,
 			(errmsg("%s%s[%s] Achievement unlocked: %s (+%d)",
 					emoji ? tier_medal[PGA_TIER_PLATINUM] : "",
 					emoji ? " " : "",
-					tier_upper[PGA_TIER_PLATINUM], slot->title, slot->points),
+					tier_upper[PGA_TIER_PLATINUM], title, slot->points),
 			 errdetail("%s", detail.data),
 			 errhint("Go outside, touch grass, run VACUUM."),
 			 errhidestmt(true),
@@ -165,6 +208,7 @@ pga_send_notice(PgaRoleEntry *entry, int s)
 	const PgaCatalogSlot *slot = pga_local_slot(s);
 	const char *medal = "";
 	const char *sep = "";
+	const char *title;
 	const char *desc;
 	char	   *rarity;
 	int			tier;
@@ -187,7 +231,8 @@ pga_send_notice(PgaRoleEntry *entry, int s)
 		sep = " ";
 	}
 
-	desc = slot->description;
+	title = pga_catalog_text(slot->title);
+	desc = pga_catalog_text(slot->description);
 	rarity = pga_rarity_line(s);
 
 	/*
@@ -196,7 +241,7 @@ pga_send_notice(PgaRoleEntry *entry, int s)
 	 */
 	ereport(NOTICE,
 			(errmsg("%s%s[%s] Achievement unlocked: %s (+%d)",
-					medal, sep, tier_upper[tier], slot->title, slot->points),
+					medal, sep, tier_upper[tier], title, slot->points),
 			 errdetail("%s%s Total score: " INT64_FORMAT ".%s",
 					   desc, pga_sentence_end(desc),
 					   pga_total_score(entry), rarity),

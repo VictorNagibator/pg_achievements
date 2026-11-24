@@ -1383,7 +1383,7 @@ Unlocked by 2 of 9 players (22%).
 COMMENT ON TABLE a_t IS 'all of them';
 NOTICE:  [BRONZE] Achievement unlocked: Self-Documenting (+10)
 DETAIL:  Describe an object with COMMENT ON. Total score: 1435.
-Unlocked by 2 of 9 players (22%).
+Unlocked by 3 of 9 players (33%).
 NOTICE:  [SILVER] Achievement unlocked: Collector (+25)
 DETAIL:  Collect every bronze achievement. Total score: 1460.
 You are the first of 9 players to unlock it.
@@ -1496,7 +1496,7 @@ BEGIN;
 LOCK TABLE a_t;
 NOTICE:  [GOLD] Achievement unlocked: Lock Hoarder (+50)
 DETAIL:  Take an ACCESS EXCLUSIVE lock with LOCK TABLE. Total score: 1885.
-Unlocked by 2 of 9 players (22%).
+Unlocked by 3 of 9 players (33%).
 COMMIT;
 CREATE TABLE "a 🐘" (id int);
 NOTICE:  [GOLD] Achievement unlocked: Unicode Artist (+50)

@@ -37,6 +37,7 @@
 #include "catalog/pg_database.h"
 #include "catalog/pg_type.h"
 #include "executor/spi.h"
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "postmaster/bgworker.h"
@@ -344,6 +345,21 @@ pga_parse_counter_key(const char *key, PgaCatalogSlot *slot)
 }
 
 /*
+ * Copy a text of the catalog into a fixed-size buffer of a slot.  The
+ * buffers fit every row the table accepts, but a cut, if any, must not
+ * split a multibyte character: a notice with half a character is refused
+ * by the conversion to the client encoding.
+ */
+static void
+pga_copy_text(char *dst, const char *src, int size)
+{
+	int			len = pg_mbcliplen(src, strlen(src), size - 1);
+
+	memcpy(dst, src, len);
+	dst[len] = '\0';
+}
+
+/*
  * Read achievements.catalog into a new snapshot.  Existing codes keep their
  * slots; removed codes stay in place as inactive; new codes get new slots.
  * Publishes the snapshot only if something changed.
@@ -410,9 +426,9 @@ pga_load_catalog(void)
 		}
 		slot.points = (int32) pga_getint(tup, desc, 5);
 		slot.threshold = pga_getint(tup, desc, 7);
-		strlcpy(slot.code, code, PGA_CODE_LEN);
-		strlcpy(slot.title, pga_getstr(tup, desc, 2), PGA_TITLE_LEN);
-		strlcpy(slot.description, pga_getstr(tup, desc, 3), PGA_DESC_LEN);
+		pga_copy_text(slot.code, code, PGA_CODE_LEN);
+		pga_copy_text(slot.title, pga_getstr(tup, desc, 2), PGA_TITLE_LEN);
+		pga_copy_text(slot.description, pga_getstr(tup, desc, 3), PGA_DESC_LEN);
 		pga_parse_counter_key(pga_getstr(tup, desc, 6), &slot);
 
 		seen[idx] = true;
@@ -438,6 +454,7 @@ pga_load_catalog(void)
 		LWLockAcquire(pga_shared->lock, LW_EXCLUSIVE);
 		memcpy(pga_shared->catalog, snap, sizeof(PgaCatalogSlot) * size);
 		pga_shared->catalog_size = size;
+		pga_shared->catalog_encoding = GetDatabaseEncoding();
 		pg_atomic_fetch_add_u32(&pga_shared->catalog_version, 1);
 		LWLockRelease(pga_shared->lock);
 	}

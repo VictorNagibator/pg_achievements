@@ -148,9 +148,15 @@ extern int	pga_tier_by_name(const char *name);
  */
 #define PGA_MAX_CATALOG			256
 #define PGA_AWARD_WORDS			(PGA_MAX_CATALOG / 64)
+
+/*
+ * Buffer sizes in bytes.  The table limits title and description to 127 and
+ * 255 characters, which take up to four bytes each in UTF8, so these hold
+ * any valid row; longer text is cut at a character boundary all the same.
+ */
 #define PGA_CODE_LEN			64
-#define PGA_TITLE_LEN			128
-#define PGA_DESC_LEN			256
+#define PGA_TITLE_LEN			(127 * 4 + 1)
+#define PGA_DESC_LEN			(255 * 4 + 1)
 
 typedef struct PgaCatalogSlot
 {
@@ -211,6 +217,8 @@ typedef struct PgaShared
 
 	/* catalog */
 	int			catalog_size;	/* number of used slots */
+	int			catalog_encoding;	/* encoding of the texts: that of the
+									 * database holding the catalog */
 	PgaCatalogSlot catalog[PGA_MAX_CATALOG];
 
 	/* award queue (ring buffer) */
@@ -299,6 +307,7 @@ extern bool pga_tracking_active(void);
 extern int	pga_award_slot(PgaRoleEntry *entry, const char *rolname, int slot,
 						   bool notify);
 extern const PgaCatalogSlot *pga_local_slot(int slot);
+extern int	pga_local_catalog_encoding(void);
 extern int	pga_local_slot_by_code(const char *code);
 extern const char *pga_current_role_name(void);
 extern bool pga_grant(const char *rolname, int slot);
