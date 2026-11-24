@@ -112,6 +112,12 @@ The extension can only be created in `pg_achievements.database`, but events
 are collected from every database of the cluster. If that database does not
 exist yet, the background worker waits until it is created.
 
+### Upgrading from 1.2.0
+
+1.2.1 changes only the library: install it and restart the server. The SQL
+objects stay at version 1.2, so no `ALTER EXTENSION` is needed;
+`achievements.version()` then reports `library 1.2.1`.
+
 ### Upgrading from 1.1
 
 Install the new version, restart the server and update the SQL objects:

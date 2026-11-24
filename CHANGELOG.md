@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.2.1 — 2026-11-24
 
-Bug fixes.
+Bug fixes. Only the library changes: install it and restart the server,
+no `ALTER EXTENSION` is needed.
 
 - Statements prepared with the extended protocol (pgbench `-M prepared`,
   pgx, asyncpg, JDBC) were not counted at all, and neither were their days

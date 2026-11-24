@@ -21,9 +21,9 @@ SELECT achievements.sync();
 (1 row)
 
 SELECT achievements.version();
-                             version                             
------------------------------------------------------------------
- pg_achievements 1.0 (library 1.2), catalog 1.0, 46 achievements
+                              version                              
+-------------------------------------------------------------------
+ pg_achievements 1.0 (library 1.2.1), catalog 1.0, 46 achievements
 (1 row)
 
 -- progress under 1.0: a platinum achievement and the old meta one
@@ -60,9 +60,9 @@ SELECT achievements.sync();
 (1 row)
 
 SELECT achievements.version();
-                             version                             
------------------------------------------------------------------
- pg_achievements 1.2 (library 1.2), catalog 1.1, 69 achievements
+                              version                              
+-------------------------------------------------------------------
+ pg_achievements 1.2 (library 1.2.1), catalog 1.1, 69 achievements
 (1 row)
 
 -- the builtin catalog and the functions match a fresh install
@@ -143,17 +143,17 @@ ALTER EXTENSION pg_achievements UPDATE TO '1.1';
 ERROR:  custom achievements use codes of new builtin achievements: streak
 \set VERBOSITY default
 SELECT achievements.version();
-                             version                             
------------------------------------------------------------------
- pg_achievements 1.0 (library 1.2), catalog 1.0, 47 achievements
+                              version                              
+-------------------------------------------------------------------
+ pg_achievements 1.0 (library 1.2.1), catalog 1.0, 47 achievements
 (1 row)
 
 -- without it the update goes through
 DELETE FROM achievements.catalog WHERE code = 'streak';
 ALTER EXTENSION pg_achievements UPDATE TO '1.1';
 SELECT achievements.version();
-                             version                             
------------------------------------------------------------------
- pg_achievements 1.1 (library 1.2), catalog 1.1, 68 achievements
+                              version                              
+-------------------------------------------------------------------
+ pg_achievements 1.1 (library 1.2.1), catalog 1.1, 68 achievements
 (1 row)
 
