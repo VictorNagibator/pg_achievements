@@ -3,13 +3,27 @@
 
 The SQL install script is the single source of truth for the catalog; run
 this after changing it:  python3 docs/gen_achievements.py > docs/ACHIEVEMENTS.md
+
+The script read is the one of default_version in pg_achievements.control,
+so a new version needs no change here.
 """
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SQL = ROOT / "sql" / "pg_achievements--1.1.sql"
+
+
+def install_script() -> Path:
+    """The install script of default_version: what CREATE EXTENSION runs."""
+    control = (ROOT / "pg_achievements.control").read_text()
+    match = re.search(r"^default_version\s*=\s*'([^']+)'", control, re.M)
+    if match is None:
+        sys.exit("default_version not found in pg_achievements.control")
+    return ROOT / "sql" / f"pg_achievements--{match.group(1)}.sql"
+
+
+SQL = install_script()
 
 ROW = re.compile(
     r"^\('(?P<code>[a-z0-9_]+)',\s*'(?P<title>(?:[^']|'')*)',\s*"
