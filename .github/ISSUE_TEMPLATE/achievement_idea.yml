@@ -1,0 +1,59 @@
+name: Achievement idea
+description: Suggest a new achievement for the builtin catalog.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A good achievement is fun, rewards (or gently mocks) something real
+        PostgreSQL users do, and can be detected cheaply on the server without
+        storing query texts. See the existing ones in
+        [docs/ACHIEVEMENTS.md](https://github.com/VictorNagibator/pg_achievements/blob/main/docs/ACHIEVEMENTS.md).
+  - type: input
+    id: title
+    attributes:
+      label: Title
+      placeholder: Forgot WHERE
+    validations:
+      required: true
+  - type: input
+    id: description
+    attributes:
+      label: Description
+      description: One sentence, as shown in the notice.
+      placeholder: UPDATE without a WHERE clause.
+    validations:
+      required: true
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Tier
+      description: Platinum is reserved for the single "collect everything" trophy.
+      options:
+        - bronze (first steps, 10 points)
+        - silver (mastering a feature, 25 points)
+        - gold (risky, rare or legendary, 50 points)
+    validations:
+      required: true
+  - type: dropdown
+    id: secret
+    attributes:
+      label: Secret?
+      description: Secret achievements show "???" until unlocked.
+      options:
+        - "No"
+        - "Yes"
+  - type: textarea
+    id: detection
+    attributes:
+      label: How to detect it
+      description: |
+        Which statement, error (SQLSTATE) or event triggers it, and the
+        threshold (how many times). Mention an existing counter from
+        `SELECT * FROM achievements._counter_keys();` if one fits.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it is fun

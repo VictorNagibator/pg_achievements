@@ -1,0 +1,73 @@
+name: Bug report
+description: Something is counted wrong, an error or a crash, the worker misbehaves.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time! Please do not paste queries or log lines
+        that contain data you would not publish: a minimal example on a test
+        table is the best report.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did and what you saw, including the exact notice, warning or error.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: SQL that shows the problem, ideally from a fresh database.
+      render: sql
+  - type: input
+    id: version
+    attributes:
+      label: pg_achievements version
+      description: "Output of `SELECT achievements.version();`"
+      placeholder: pg_achievements 1.2 (library 1.2), catalog 1.1, 68 achievements
+    validations:
+      required: true
+  - type: input
+    id: postgres
+    attributes:
+      label: PostgreSQL version and OS
+      description: "Output of `SELECT version();`"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed from
+      options:
+        - Source (make install)
+        - PGXN
+        - Docker image (ghcr.io/victornagibator/pg_achievements)
+        - Pigsty / pgext.cloud packages
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings
+      description: |
+        Output of:
+        `SELECT name, setting FROM pg_settings WHERE name LIKE 'pg_achievements.%' OR name IN ('shared_preload_libraries', 'compute_query_id', 'log_min_messages');`
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Server log
+      description: |
+        Lines mentioning pg_achievements, such as
+        `pg_achievements: internal error, tracking is disabled for this session` with its SQLSTATE,
+        or messages of the worker and the launcher.
+      render: text
