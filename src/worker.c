@@ -106,6 +106,12 @@ pga_worker_sigterm(SIGNAL_ARGS)
  * until pg_achievements.database exists, then starts the flush worker as a
  * dynamic worker and restarts it 10 seconds after it exits.  This way the
  * database may be created after the server has started.
+ *
+ * Only one flush worker may run: two would both write the same increments.
+ * A flush worker can outlive its launcher (pg_terminate_backend() of the
+ * launcher), so the restarted launcher does not start another one while
+ * pga_shared->worker_pid is set, and the flush worker itself refuses to
+ * run next to another one (see pga_claim_worker).
  */
 void
 pga_register_worker(void)
@@ -225,10 +231,16 @@ pga_launcher_main(Datum main_arg)
 			last_exit = GetCurrentTimestamp();
 		}
 
-		if (handle == NULL &&
-			(last_exit == 0 ||
-			 TimestampDifferenceExceeds(last_exit, GetCurrentTimestamp(),
-										PGA_WORKER_RESTART_S * 1000)))
+		/*
+		 * A flush worker started by an earlier launcher may still run; we
+		 * have no handle for it, so poll until it is gone.
+		 */
+		if (handle == NULL && pga_shared->worker_pid != 0)
+			last_exit = GetCurrentTimestamp();
+		else if (handle == NULL &&
+				 (last_exit == 0 ||
+				  TimestampDifferenceExceeds(last_exit, GetCurrentTimestamp(),
+											 PGA_WORKER_RESTART_S * 1000)))
 		{
 			if (pga_database_exists())
 			{
@@ -255,7 +267,14 @@ pga_launcher_main(Datum main_arg)
 	}
 
 	pga_shared->launcher_latch = NULL;
-	proc_exit(0);
+
+	/*
+	 * Exit code 1, not 0: a static worker that exits with 0 is unregistered
+	 * for good, and after pg_terminate_backend() of the launcher nothing
+	 * would restart the flush worker any more.  At shutdown the postmaster
+	 * restarts nothing anyway.
+	 */
+	proc_exit(1);
 }
 
 /*
@@ -846,12 +865,50 @@ pga_cycle(bool last)
 	return complete;
 }
 
-/* Do not leave a stale latch pointer behind for backends to set. */
+/*
+ * Release the claim of pga_claim_worker and do not leave a stale latch
+ * pointer behind for backends to set.  No lock: only the owner clears the
+ * claim, and taking a lock while exiting could wait for ourselves.
+ */
 static void
 pga_worker_exit(int code, Datum arg)
 {
-	pga_shared->worker_latch = NULL;
-	pga_shared->worker_pid = 0;
+	if (pga_shared->worker_pid == MyProcPid)
+	{
+		pga_shared->worker_latch = NULL;
+		pg_write_barrier();
+		pga_shared->worker_pid = 0;
+	}
+}
+
+/*
+ * Become the one flush worker, or return false if another one runs.  The
+ * claim is released on exit by pga_worker_exit; a crash reinitializes
+ * shared memory, so no stale claim survives.
+ */
+static bool
+pga_claim_worker(void)
+{
+	pid_t		other;
+
+	LWLockAcquire(pga_shared->lock, LW_EXCLUSIVE);
+	other = pga_shared->worker_pid;
+	if (other == 0)
+	{
+		pga_shared->worker_pid = MyProcPid;
+		pga_shared->worker_latch = MyLatch;
+	}
+	LWLockRelease(pga_shared->lock);
+
+	if (other != 0)
+	{
+		ereport(LOG,
+				(errmsg("pg_achievements: worker with PID %d is already running",
+						(int) other)));
+		return false;
+	}
+	before_shmem_exit(pga_worker_exit, (Datum) 0);
+	return true;
 }
 
 /*
@@ -867,11 +924,11 @@ pga_worker_main(Datum main_arg)
 	pqsignal(SIGTERM, pga_worker_sigterm);
 	BackgroundWorkerUnblockSignals();
 
-	BackgroundWorkerInitializeConnection(pga_database, NULL, 0);
+	/* before connecting, so a refused worker does not touch the database */
+	if (!pga_claim_worker())
+		proc_exit(0);
 
-	pga_shared->worker_pid = MyProcPid;
-	pga_shared->worker_latch = MyLatch;
-	before_shmem_exit(pga_worker_exit, (Datum) 0);
+	BackgroundWorkerInitializeConnection(pga_database, NULL, 0);
 
 	cycle_cxt = AllocSetContextCreate(TopMemoryContext,
 									  "pg_achievements worker cycle",

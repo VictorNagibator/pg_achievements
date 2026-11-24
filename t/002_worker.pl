@@ -55,6 +55,29 @@ is($node->safe_psql('postgres',
 	  WHERE role_name = current_user AND counter_key = 'create_table'}),
 	'2', 'tracking continues after crash recovery');
 
+# pg_terminate_backend() of the launcher: it comes back, does not start a
+# second flush worker next to the running one, and restarts that one later
+my $launcher_pid = q{SELECT pid FROM pg_stat_activity
+	WHERE backend_type = 'pg_achievements launcher'};
+my $lpid = $node->safe_psql('postgres', $launcher_pid);
+$pid = $node->safe_psql('postgres', $worker_pid);
+$node->safe_psql('postgres', "SELECT pg_terminate_backend($lpid)");
+ok($node->poll_query_until('postgres',
+	"SELECT count(*) = 1 AND min(pid) <> $lpid FROM pg_stat_activity
+	 WHERE backend_type = 'pg_achievements launcher'"),
+	'launcher restarted');
+sleep(2);
+is($node->safe_psql('postgres',
+	"SELECT string_agg(pid::text, ',') FROM pg_stat_activity
+	 WHERE backend_type = 'pg_achievements'"),
+	$pid, 'the running flush worker stays the only one');
+$node->safe_psql('postgres', "SELECT pg_terminate_backend($pid)");
+ok($node->poll_query_until('postgres',
+	"SELECT count(*) = 1 AND min(pid) <> $pid FROM pg_stat_activity
+	 WHERE backend_type = 'pg_achievements'"),
+	'the new launcher restarts the flush worker');
+pga_sync($node);
+
 # the database of the extension may be created after the server started
 my $late = pga_node('late', no_extension => 1,
 	conf => "pg_achievements.database = 'late_db'");
