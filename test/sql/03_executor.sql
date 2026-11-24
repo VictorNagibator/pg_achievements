@@ -38,6 +38,18 @@ ROLLBACK;
 SELECT id FROM small;
 SELECT 1 FROM small WHERE id = 1;
 
+-- a prepared statement counts every time it runs, also in later
+-- transactions, and EXECUTE counts like the statement itself: 3 more of
+-- stmt_select, cte_any 3, a join, 3 more rows
+PREPARE p AS WITH s AS (SELECT id FROM small) SELECT count(*) FROM s JOIN small USING (id);
+EXECUTE p;
+EXECUTE p;
+BEGIN;
+EXECUTE p;
+COMMIT;
+DEALLOCATE p;
+
 \set QUIET off
 SELECT * FROM pga_counters();
 RESET ROLE;
+

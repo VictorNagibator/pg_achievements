@@ -73,46 +73,82 @@ static int	nesting_level = 0;
 /* the session has just authenticated: count "connect" at startup commit */
 static bool startup_pending = false;
 
-/* features of an analyzed statement, counted when it succeeds */
-#define PGA_MAX_NESTING 32
+/*
+ * Nesting level of the statement prepared by a top-level PREPARE or run by
+ * a top-level EXECUTE, which counts like a top-level statement; -1 when
+ * there is none.
+ */
+static int	execute_level = -1;
 
+/* structural features of an analyzed query, counted each time it succeeds */
 #define PF_CTE			0x0001
 #define PF_RECURSIVE	0x0002
 #define PF_WINDOW		0x0004
 #define PF_LATERAL		0x0008
-#define PF_NIGHT		0x0010
 #define PF_SELECT		0x0020
 #define PF_UPSERT		0x0040
 #define PF_RETURNING	0x0080
 #define PF_MERGE		0x0100
 #define PF_SKIP_LOCKED	0x0200
 #define PF_GROUPING		0x0400
-#define PF_NEW_YEAR		0x0800
 
-typedef struct PgaPending
+typedef struct PgaFeatures
 {
-	bool		valid;
-	uint32		flags;
+	uint32		flags;			/* PF_* */
 	int			joins;
 	int			jsonb_ops;
 	int			terminate;
 	int			notify;			/* pg_notify() calls */
-	int32		day;			/* local day number, for streak_days */
+} PgaFeatures;
+
+/*
+ * The statement analyzed last at each nesting level, counted when it
+ * succeeds.  "valid" is cleared once it has been counted.
+ */
+#define PGA_MAX_NESTING 32
+
+typedef struct PgaPending
+{
+	bool		valid;
+	uint64		query_id;		/* 0 if query ids are not computed */
+	PgaFeatures features;
 } PgaPending;
 
 static PgaPending pending[PGA_MAX_NESTING];
 
+/*
+ * Features by query id.  A prepared statement is analyzed once and may run
+ * any number of times later, in other transactions: its features can only
+ * be found again through the query id the plan carries.  This needs query
+ * ids, which _PG_init turns on with EnableQueryId() as pg_stat_statements
+ * does; with compute_query_id = off only the execution that follows the
+ * analysis counts.
+ *
+ * Every lookup or insert ticks feature_clock.  When the cache is full, the
+ * entries not used during the last half of the capacity are dropped, so
+ * the prepared statements a session keeps using stay.
+ */
+#define PGA_FEATURE_CACHE_SIZE 4096
+
+typedef struct PgaFeatureEntry
+{
+	uint64		query_id;		/* hash key */
+	uint64		last_used;		/* feature_clock of the last use */
+	PgaFeatures features;
+} PgaFeatureEntry;
+
+static HTAB *feature_cache = NULL;
+static uint64 feature_clock = 0;
+
 /* walker state */
 typedef struct PgaWalkContext
 {
-	uint32		flags;
-	int			joins;
-	int			jsonb_ops;
-	int			terminate;
-	int			notify;
+	PgaFeatures features;
 	int			null_eq;
 	int			cartesian;
 	int			not_in;
+	int			update_no_where;
+	int			delete_no_where;
 } PgaWalkContext;
 
 /* Local wall-clock time of a statement, see pga_local_time() */
@@ -148,11 +184,22 @@ typedef struct PgaLocalTime
 		PG_END_TRY(); \
 	} while (0)
 
-/* Is the current nesting level counted (top level, or track_nested)? */
+/*
+ * Is the current nesting level counted: top level, the statement of a
+ * top-level PREPARE or EXECUTE, or anything with track_nested?
+ */
 static inline bool
 pga_level_tracked(void)
 {
-	return nesting_level == 0 || pga_track_nested;
+	return nesting_level == 0 || nesting_level == execute_level ||
+		pga_track_nested;
+}
+
+/* Is the current nesting level that of a top-level statement? */
+static inline bool
+pga_level_top(void)
+{
+	return nesting_level == 0 || nesting_level == execute_level;
 }
 
 /* Pending features of the statement at the current nesting level. */
@@ -348,29 +395,37 @@ pga_walker(Node *node, void *context)
 		Query	   *q = (Query *) node;
 		ListCell   *lc;
 
+		PgaFeatures *f = &ctx->features;
+
 		if (q->cteList != NIL)
-			ctx->flags |= PF_CTE;
+			f->flags |= PF_CTE;
 		if (q->hasRecursive)
-			ctx->flags |= PF_RECURSIVE;
+			f->flags |= PF_RECURSIVE;
 		if (q->hasWindowFuncs)
-			ctx->flags |= PF_WINDOW;
+			f->flags |= PF_WINDOW;
 		if (q->onConflict != NULL)
-			ctx->flags |= PF_UPSERT;
+			f->flags |= PF_UPSERT;
 		if (q->returningList != NIL)
-			ctx->flags |= PF_RETURNING;
+			f->flags |= PF_RETURNING;
 		if (q->commandType == CMD_MERGE)
-			ctx->flags |= PF_MERGE;
+			f->flags |= PF_MERGE;
 		if (q->groupingSets != NIL)
-			ctx->flags |= PF_GROUPING;
+			f->flags |= PF_GROUPING;
 		if (pga_is_cartesian(q))
 			ctx->cartesian++;
+
+		/* also inside a CTE: WITH x AS (UPDATE t SET ...) SELECT ... */
+		if (q->commandType == CMD_UPDATE && q->jointree->quals == NULL)
+			ctx->update_no_where++;
+		if (q->commandType == CMD_DELETE && q->jointree->quals == NULL)
+			ctx->delete_no_where++;
 
 		foreach(lc, q->rowMarks)
 		{
 			RowMarkClause *rc = (RowMarkClause *) lfirst(lc);
 
 			if (rc->waitPolicy == LockWaitSkip)
-				ctx->flags |= PF_SKIP_LOCKED;
+				f->flags |= PF_SKIP_LOCKED;
 		}
 
 		foreach(lc, q->rtable)
@@ -378,9 +433,9 @@ pga_walker(Node *node, void *context)
 			RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);
 
 			if (rte->rtekind == RTE_JOIN)
-				ctx->joins++;
+				f->joins++;
 			if (rte->lateral)
-				ctx->flags |= PF_LATERAL;
+				f->flags |= PF_LATERAL;
 		}
 
 		return query_tree_walker(q, pga_walker, context, 0);
@@ -391,7 +446,7 @@ pga_walker(Node *node, void *context)
 		OpExpr	   *op = (OpExpr *) node;
 
 		if (pga_is_jsonb_op(op->opno))
-			ctx->jsonb_ops++;
+			ctx->features.jsonb_ops++;
 		else if (pga_is_null_equality(op))
 			ctx->null_eq++;
 	}
@@ -400,9 +455,9 @@ pga_walker(Node *node, void *context)
 		Oid			funcid = ((FuncExpr *) node)->funcid;
 
 		if (funcid == F_PG_TERMINATE_BACKEND)
-			ctx->terminate++;
+			ctx->features.terminate++;
 		else if (funcid == F_PG_NOTIFY)
-			ctx->notify++;
+			ctx->features.notify++;
 	}
 	else if (IsA(node, BoolExpr) && ((BoolExpr *) node)->boolop == NOT_EXPR)
 	{
@@ -455,10 +510,68 @@ pga_has_select_star(ParseState *pstate, Query *query)
 	return false;
 }
 
+/* Drop the cached features not used lately, see PgaFeatureEntry. */
+static void
+pga_trim_feature_cache(void)
+{
+	HASH_SEQ_STATUS status;
+	PgaFeatureEntry *entry;
+
+	hash_seq_init(&status, feature_cache);
+	while ((entry = hash_seq_search(&status)) != NULL)
+	{
+		if (entry->last_used + PGA_FEATURE_CACHE_SIZE / 2 <= feature_clock)
+			(void) hash_search(feature_cache, &entry->query_id, HASH_REMOVE, NULL);
+	}
+}
+
+/* Remember the features of an analyzed query under its query id. */
+static void
+pga_remember_features(uint64 query_id, const PgaFeatures *features)
+{
+	PgaFeatureEntry *entry;
+
+	if (query_id == UINT64CONST(0))
+		return;
+
+	if (feature_cache == NULL)
+	{
+		HASHCTL		ctl;
+
+		memset(&ctl, 0, sizeof(ctl));
+		ctl.keysize = sizeof(uint64);
+		ctl.entrysize = sizeof(PgaFeatureEntry);
+		ctl.hcxt = TopMemoryContext;
+		feature_cache = hash_create("pg_achievements query features", 256,
+									&ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+	}
+	else if (hash_get_num_entries(feature_cache) >= PGA_FEATURE_CACHE_SIZE)
+		pga_trim_feature_cache();
+
+	entry = hash_search(feature_cache, &query_id, HASH_ENTER, NULL);
+	entry->last_used = ++feature_clock;
+	entry->features = *features;
+}
+
+/* Features remembered for a query id, or NULL. */
+static const PgaFeatures *
+pga_lookup_features(uint64 query_id)
+{
+	PgaFeatureEntry *entry;
+
+	if (query_id == UINT64CONST(0) || feature_cache == NULL)
+		return NULL;
+	entry = hash_search(feature_cache, &query_id, HASH_FIND, NULL);
+	if (entry == NULL)
+		return NULL;
+	entry->last_used = ++feature_clock;
+	return &entry->features;
+}
+
 /*
  * post_parse_analyze_hook: inspect every analyzed statement.  Attempt
- * counters are bumped here; the rest is stored as pending until the
- * statement succeeds.
+ * counters are bumped here; the structural features are kept as pending
+ * (and by query id) until the statement succeeds.
  */
 static void
 pga_post_parse_analyze(ParseState *pstate, Query *query, PgaJumbleState *jstate)
@@ -484,16 +597,8 @@ pga_post_parse_analyze(ParseState *pstate, Query *query, PgaJumbleState *jstate)
 
 		if (pga_sync_role())
 		{
-			PgaLocalTime lt;
-
 			p->valid = true;
-			pga_local_time(pga_statement_time(), &lt);
-			if (pga_is_night(&lt))
-				p->flags |= PF_NIGHT;
-			if (pga_is_new_year(&lt))
-				p->flags |= PF_NEW_YEAR;
-			if (lt.hour >= 0)
-				p->day = lt.day;
+			p->query_id = query->queryId;
 
 			if (query->commandType != CMD_UTILITY)
 			{
@@ -502,18 +607,15 @@ pga_post_parse_analyze(ParseState *pstate, Query *query, PgaJumbleState *jstate)
 				memset(&ctx, 0, sizeof(ctx));
 				(void) pga_walker((Node *) query, &ctx);
 
-				p->flags |= ctx.flags;
-				p->joins = ctx.joins;
-				p->jsonb_ops = ctx.jsonb_ops;
-				p->terminate = ctx.terminate;
-				p->notify = ctx.notify;
+				p->features = ctx.features;
 				if (query->commandType == CMD_SELECT)
-					p->flags |= PF_SELECT;
+					p->features.flags |= PF_SELECT;
+				pga_remember_features(query->queryId, &p->features);
 
 				/* counted immediately: the attempt is what matters */
-				if (query->commandType == CMD_UPDATE && query->jointree->quals == NULL)
+				if (ctx.update_no_where > 0)
 					pga_count(PGA_C_UPDATE_NO_WHERE, 1);
-				if (query->commandType == CMD_DELETE && query->jointree->quals == NULL)
+				if (ctx.delete_no_where > 0)
 					pga_count(PGA_C_DELETE_NO_WHERE, 1);
 				if (ctx.null_eq > 0)
 					pga_count(PGA_C_NULL_EQ, 1);
@@ -530,49 +632,93 @@ pga_post_parse_analyze(ParseState *pstate, Query *query, PgaJumbleState *jstate)
 	PGA_GUARD_END;
 }
 
-/* Count the pending features of a statement that has just succeeded. */
+/*
+ * Count a statement that has just succeeded: its structural features (none
+ * for a utility command), and what depends on the time it started.
+ */
+static void
+pga_count_success(const PgaFeatures *f)
+{
+	PgaLocalTime lt;
+	uint32		flags = f->flags;
+
+	if (flags & PF_SELECT)
+		pga_count(PGA_C_STMT_SELECT, 1);
+	if (flags & PF_CTE)
+		pga_count(PGA_C_CTE_ANY, 1);
+	if (flags & PF_RECURSIVE)
+		pga_count(PGA_C_CTE_RECURSIVE, 1);
+	if (flags & PF_WINDOW)
+		pga_count(PGA_C_WINDOW_FUNC, 1);
+	if (flags & PF_LATERAL)
+		pga_count(PGA_C_LATERAL, 1);
+	if (f->jsonb_ops > 0)
+		pga_count(PGA_C_JSONB_OPS, f->jsonb_ops);
+	if (f->joins > 0)
+		pga_count_max(PGA_C_JOIN_COUNT_MAX, f->joins);
+	if (f->terminate > 0)
+		pga_count(PGA_C_TERMINATE_BACKEND, f->terminate);
+	if (flags & PF_UPSERT)
+		pga_count(PGA_C_UPSERT, 1);
+	if (flags & PF_RETURNING)
+		pga_count(PGA_C_RETURNING, 1);
+	if (flags & PF_MERGE)
+		pga_count(PGA_C_MERGE, 1);
+	if (flags & PF_SKIP_LOCKED)
+		pga_count(PGA_C_SKIP_LOCKED, 1);
+	if (flags & PF_GROUPING)
+		pga_count(PGA_C_GROUPING_SETS, 1);
+	if (f->notify > 0)
+		pga_count(PGA_C_LISTEN_NOTIFY, f->notify);
+
+	pga_local_time(pga_statement_time(), &lt);
+	if (lt.hour < 0)
+		return;
+	if (pga_is_night(&lt))
+		pga_count(PGA_C_NIGHT_QUERY, 1);
+	if (pga_is_new_year(&lt))
+		pga_count(PGA_C_NEW_YEAR_QUERY, 1);
+	pga_note_active_day(lt.day);
+}
+
+/* Count the pending statement of a nesting level, if not done yet. */
 static void
 pga_apply_pending(PgaPending *p)
 {
 	if (!p->valid)
 		return;
-
-	if (p->flags & PF_SELECT)
-		pga_count(PGA_C_STMT_SELECT, 1);
-	if (p->flags & PF_CTE)
-		pga_count(PGA_C_CTE_ANY, 1);
-	if (p->flags & PF_RECURSIVE)
-		pga_count(PGA_C_CTE_RECURSIVE, 1);
-	if (p->flags & PF_WINDOW)
-		pga_count(PGA_C_WINDOW_FUNC, 1);
-	if (p->flags & PF_LATERAL)
-		pga_count(PGA_C_LATERAL, 1);
-	if (p->flags & PF_NIGHT)
-		pga_count(PGA_C_NIGHT_QUERY, 1);
-	if (p->jsonb_ops > 0)
-		pga_count(PGA_C_JSONB_OPS, p->jsonb_ops);
-	if (p->joins > 0)
-		pga_count_max(PGA_C_JOIN_COUNT_MAX, p->joins);
-	if (p->terminate > 0)
-		pga_count(PGA_C_TERMINATE_BACKEND, p->terminate);
-	if (p->flags & PF_UPSERT)
-		pga_count(PGA_C_UPSERT, 1);
-	if (p->flags & PF_RETURNING)
-		pga_count(PGA_C_RETURNING, 1);
-	if (p->flags & PF_MERGE)
-		pga_count(PGA_C_MERGE, 1);
-	if (p->flags & PF_SKIP_LOCKED)
-		pga_count(PGA_C_SKIP_LOCKED, 1);
-	if (p->flags & PF_GROUPING)
-		pga_count(PGA_C_GROUPING_SETS, 1);
-	if (p->flags & PF_NEW_YEAR)
-		pga_count(PGA_C_NEW_YEAR_QUERY, 1);
-	if (p->notify > 0)
-		pga_count(PGA_C_LISTEN_NOTIFY, p->notify);
-	if (p->day > 0)
-		pga_note_active_day(p->day);
-
 	p->valid = false;
+	pga_count_success(&p->features);
+}
+
+/*
+ * Count a statement the executor has finished.  It is usually the one
+ * analyzed last at this level; otherwise (a prepared statement analyzed in
+ * an earlier transaction) its features are looked up by query id.  If
+ * they are unknown, only what depends on the time is counted.
+ */
+static void
+pga_apply_executed(PlannedStmt *stmt)
+{
+	PgaPending *p = pga_pending_slot();
+	const PgaFeatures *f;
+	PgaFeatures none;
+
+	if (p->valid && p->query_id == stmt->queryId)
+	{
+		pga_apply_pending(p);
+		return;
+	}
+	if (!pga_sync_role())
+		return;
+
+	f = pga_lookup_features(stmt->queryId);
+	if (f == NULL)
+	{
+		memset(&none, 0, sizeof(none));
+		f = &none;
+	}
+	pga_count_success(f);
 }
 
 /*
@@ -656,7 +802,7 @@ pga_ExecutorEnd(QueryDesc *queryDesc)
 		{
 			bool		big_seqscan = false;
 
-			pga_apply_pending(pga_pending_slot());
+			pga_apply_executed(queryDesc->plannedstmt);
 
 			if (queryDesc->planstate != NULL)
 			{
@@ -671,7 +817,7 @@ pga_ExecutorEnd(QueryDesc *queryDesc)
 						  (int64) Min(queryDesc->estate->es_processed,
 									  (uint64) PG_INT64_MAX));
 
-			if (nesting_level == 0)
+			if (pga_level_top())
 			{
 				TimestampTz now = GetCurrentTimestamp();
 				int64		duration;
@@ -1119,6 +1265,10 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 	PgaUtilityEvents ev;
 	volatile bool track = false;	/* set inside PG_TRY, read after it */
 	int			level = nesting_level;
+	int			saved_execute_level = execute_level;
+	bool		is_execute = IsA(pstmt->utilityStmt, ExecuteStmt);
+	bool		is_prepare = IsA(pstmt->utilityStmt, PrepareStmt);
+	bool		top = pga_level_top();
 
 	ev.n = 0;
 	if (pga_tracking_active() && pga_level_tracked())
@@ -1132,6 +1282,17 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 	}
 
 	nesting_level++;
+
+	/*
+	 * PREPARE and EXECUTE are how a statement is sent, so the statement
+	 * counts as if it had been sent at their level, as with the protocol
+	 * messages Parse and Execute, which do not nest: PREPARE analyzes it
+	 * (attempt counters, and its features for later executions), EXECUTE
+	 * runs it.
+	 */
+	if ((is_execute || is_prepare) && top)
+		execute_level = nesting_level;
+
 	PG_TRY();
 	{
 		if (prev_ProcessUtility)
@@ -1144,6 +1305,7 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 	PG_FINALLY();
 	{
 		nesting_level--;
+		execute_level = saved_execute_level;
 	}
 	PG_END_TRY();
 
@@ -1158,7 +1320,10 @@ pga_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 
 			for (int i = 0; i < ev.n; i++)
 				pga_count(ev.counters[i], ev.amounts[i]);
-			pga_apply_pending(p);
+			if (is_execute)
+				p->valid = false;	/* the statement it ran has counted */
+			else
+				pga_apply_pending(p);
 
 			if (level == 0)
 				pga_maybe_flush_by_time(GetCurrentTimestamp());

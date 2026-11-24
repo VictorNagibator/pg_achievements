@@ -105,20 +105,53 @@ SELECT 1 FROM small WHERE id = 1;
         1
 (1 row)
 
+-- a prepared statement counts every time it runs, also in later
+-- transactions, and EXECUTE counts like the statement itself: 3 more of
+-- stmt_select, cte_any 3, a join, 3 more rows
+PREPARE p AS WITH s AS (SELECT id FROM small) SELECT count(*) FROM s JOIN small USING (id);
+EXECUTE p;
+NOTICE:  [BRONZE] Achievement unlocked: WITH Love (+10)
+DETAIL:  Run a query with a common table expression. Total score: 205.
+Unlocked by 2 of 4 players (50%).
+NOTICE:  [BRONZE] Achievement unlocked: All Connected (+10)
+DETAIL:  Run a query with an explicit JOIN. Total score: 215.
+Unlocked by 2 of 4 players (50%).
+ count 
+-------
+    10
+(1 row)
+
+EXECUTE p;
+ count 
+-------
+    10
+(1 row)
+
+BEGIN;
+EXECUTE p;
+ count 
+-------
+    10
+(1 row)
+
+COMMIT;
+DEALLOCATE p;
 \set QUIET off
 SELECT * FROM pga_counters();
         key         | value 
 --------------------+-------
+ cte_any            |     3
+ join_count_max     |     1
  query_over_1h      |     3
  query_over_60s     |     4
  rollback           |     2
  rollback_long_xact |     1
- rows_processed     |    17
+ rows_processed     |    20
  select_star        |     1
  seqscan_big        |     1
- stmt_select        |     8
+ stmt_select        |    11
  streak_days        |     1
-(9 rows)
+(11 rows)
 
 RESET ROLE;
 RESET

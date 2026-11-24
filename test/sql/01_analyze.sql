@@ -51,6 +51,11 @@ ROLLBACK;
 UPDATE t1 SET a = 1 / 0;
 -- with WHERE: nothing
 UPDATE t1 SET a = a WHERE id = 1;
+-- inside a CTE too (one more of each)
+WITH u AS (UPDATE t1 SET a = a RETURNING id) SELECT count(*) FROM u;
+BEGIN;
+WITH d AS (DELETE FROM t2 RETURNING id) SELECT count(*) FROM d;
+ROLLBACK;
 
 -- terminate_backend (pid -1 does not exist, the call still succeeds)
 SELECT pg_terminate_backend(-1);

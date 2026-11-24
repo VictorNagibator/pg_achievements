@@ -165,11 +165,29 @@ UPDATE t1 SET a = 1 / 0;
 ERROR:  division by zero
 -- with WHERE: nothing
 UPDATE t1 SET a = a WHERE id = 1;
+-- inside a CTE too (one more of each)
+WITH u AS (UPDATE t1 SET a = a RETURNING id) SELECT count(*) FROM u;
+NOTICE:  [BRONZE] Achievement unlocked: Returning Hero (+10)
+DETAIL:  Use RETURNING in a data-modifying statement. Total score: 235.
+You are the first of 2 players to unlock it.
+ count 
+-------
+    10
+(1 row)
+
+BEGIN;
+WITH d AS (DELETE FROM t2 RETURNING id) SELECT count(*) FROM d;
+ count 
+-------
+    10
+(1 row)
+
+ROLLBACK;
 -- terminate_backend (pid -1 does not exist, the call still succeeds)
 SELECT pg_terminate_backend(-1);
 WARNING:  PID -1 is not a PostgreSQL backend process
 NOTICE:  [GOLD] Achievement unlocked: Executioner (+50)
-DETAIL:  Call pg_terminate_backend. Total score: 275.
+DETAIL:  Call pg_terminate_backend. Total score: 285.
 You are the first of 2 players to unlock it.
  pg_terminate_backend 
 ----------------------
@@ -179,12 +197,9 @@ You are the first of 2 players to unlock it.
 -- upsert and returning; DELETE ... RETURNING * is not a SELECT *
 INSERT INTO t1 VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
 NOTICE:  [BRONZE] Achievement unlocked: Upsert Happens (+10)
-DETAIL:  Run INSERT ... ON CONFLICT. Total score: 285.
+DETAIL:  Run INSERT ... ON CONFLICT. Total score: 295.
 You are the first of 2 players to unlock it.
 INSERT INTO t1 VALUES (11, 11) ON CONFLICT (id) DO UPDATE SET a = EXCLUDED.a RETURNING id;
-NOTICE:  [BRONZE] Achievement unlocked: Returning Hero (+10)
-DETAIL:  Use RETURNING in a data-modifying statement. Total score: 295.
-You are the first of 2 players to unlock it.
  id 
 ----
  11
@@ -294,10 +309,10 @@ SELECT 1 / 0;
 ERROR:  division by zero
 -- night_query: 03:00-05:00 in the session time zone
 SET pg_achievements.test_now = '2026-11-18 03:30:00-08';
-SELECT 2 AS night;
 NOTICE:  [BRONZE] Achievement unlocked: Night Owl (+10)
 DETAIL:  Run a query between 03:00 and 05:00. Total score: 505.
 You are the first of 2 players to unlock it.
+SELECT 2 AS night;
  night 
 -------
      2
@@ -337,10 +352,10 @@ SELECT 'day 2' AS streak;
 -- new_year_query: the first minute of the year, local time
 -- (the SET right after it also runs in that minute and counts too)
 SET pg_achievements.test_now = '2027-01-01 00:00:30-08';
-SELECT 'day 3, happy new year' AS streak;
 NOTICE:  [GOLD] Achievement unlocked: Happy New Query (+50)
 DETAIL:  Run a query in the first minute of a new year. Total score: 555.
 You are the first of 2 players to unlock it.
+SELECT 'day 3, happy new year' AS streak;
         streak         
 -----------------------
  day 3, happy new year
@@ -382,9 +397,9 @@ SELECT * FROM pga_counters();
          key          | value 
 ----------------------+-------
  cartesian_product    |     2
- cte_any              |     2
+ cte_any              |     4
  cte_recursive        |     1
- delete_no_where      |     1
+ delete_no_where      |     2
  err_division_by_zero |     2
  grouping_sets        |     1
  join_count_max       |     2
@@ -396,15 +411,15 @@ SELECT * FROM pga_counters();
  night_query          |     3
  not_in_subquery      |     1
  null_eq              |     1
- returning            |     2
- rollback             |     1
- rows_processed       |    63
+ returning            |     4
+ rollback             |     2
+ rows_processed       |    65
  select_star          |     4
  skip_locked          |     1
- stmt_select          |    39
+ stmt_select          |    41
  streak_days          |     3
  terminate_backend    |     1
- update_no_where      |     2
+ update_no_where      |     3
  upsert               |     2
  window_func          |     1
 (26 rows)

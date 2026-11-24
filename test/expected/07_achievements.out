@@ -27,11 +27,11 @@ Unlocked by 3 of 9 players (33%).
 WITH x AS (SELECT 1) SELECT * FROM x;
 NOTICE:  [BRONZE] Achievement unlocked: WITH Love (+10)
 DETAIL:  Run a query with a common table expression. Total score: 60.
-Unlocked by 3 of 9 players (33%).
+Unlocked by 4 of 9 players (44%).
 SELECT 1 FROM a_t JOIN a_t b USING (id);
 NOTICE:  [BRONZE] Achievement unlocked: All Connected (+10)
 DETAIL:  Run a query with an explicit JOIN. Total score: 70.
-Unlocked by 3 of 9 players (33%).
+Unlocked by 4 of 9 players (44%).
 EXPLAIN SELECT 1;
 NOTICE:  [BRONZE] Achievement unlocked: Investigator (+10)
 DETAIL:  Ask the planner with EXPLAIN. Total score: 80.
@@ -1090,11 +1090,10 @@ DETAIL:  Run 1000 queries with SELECT *. Total score: 150.
 You are the first of 9 players to unlock it.
 SELECT * FROM a_t
 SET pg_achievements.test_now = '2026-11-18 04:00:00-08';
-SELECT 'SELECT 1' FROM generate_series(1, 20) \gexec
 NOTICE:  [BRONZE] Achievement unlocked: Night Owl (+10)
 DETAIL:  Run a query between 03:00 and 05:00. Total score: 160.
 Unlocked by 2 of 9 players (22%).
-SELECT 1
+SELECT 'SELECT 1' FROM generate_series(1, 20) \gexec
 SELECT 1
 SELECT 1
 SELECT 1
@@ -1116,6 +1115,7 @@ SELECT 1
 NOTICE:  [SILVER] Achievement unlocked: Night Shift (+25)
 DETAIL:  Run 20 queries between 03:00 and 05:00. Total score: 185.
 You are the first of 9 players to unlock it.
+SELECT 1
 SELECT 1
 RESET pg_achievements.test_now;
 SELECT 1 FROM a_t WHERE id = NULL;
@@ -1508,10 +1508,10 @@ NOTICE:  [GOLD] Achievement unlocked: Novelist (+50)
 DETAIL:  Name a table so long that PostgreSQL truncates the name. Total score: 1985.
 Unlocked by 2 of 9 players (22%).
 SET pg_achievements.test_now = '2027-01-01 00:00:10-08';
-SELECT 'happy new year';
 NOTICE:  [GOLD] Achievement unlocked: Happy New Query (+50)
 DETAIL:  Run a query in the first minute of a new year. Total score: 2035.
 Unlocked by 2 of 9 players (22%).
+SELECT 'happy new year';
 RESET pg_achievements.test_now;
 ALTER SYSTEM SET pg_achievements.enabled = off;
 NOTICE:  [GOLD] Achievement unlocked: Regret (+50)

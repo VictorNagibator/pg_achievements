@@ -10,6 +10,7 @@
 #include "fmgr.h"
 #include "funcapi.h"
 #include "access/xact.h"
+#include "nodes/queryjumble.h"
 #include "pgstat.h"
 #include "storage/latch.h"
 #include "utils/acl.h"
@@ -69,6 +70,14 @@ _PG_init(void)
 	pga_shmem_install_hooks();
 	pga_install_hooks();
 	pga_register_worker();
+
+	/*
+	 * Query ids let the executor hooks find the features of a prepared
+	 * statement analyzed in an earlier transaction (see hooks.c).  As with
+	 * pg_stat_statements, compute_query_id = auto now computes them;
+	 * compute_query_id = off still turns them off.
+	 */
+	EnableQueryId();
 }
 
 /* ---------- SQL-callable functions ---------- */
