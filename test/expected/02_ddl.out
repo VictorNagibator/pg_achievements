@@ -30,10 +30,14 @@ Unlocked by 2 of 3 players (67%).
 CREATE TABLE IF NOT EXISTS d1 (id int);   -- exists: not counted
 NOTICE:  relation "d1" already exists, skipping
 CREATE TABLE d2 AS SELECT 1 AS id;
+CREATE TABLE IF NOT EXISTS d2 AS SELECT 1 AS id;   -- exists: not counted
+NOTICE:  relation "d2" already exists, skipping
 CREATE INDEX d1_v ON d1 (v);
 NOTICE:  [BRONZE] Achievement unlocked: Indexer (+10)
 DETAIL:  Create your first index. Total score: 55.
 You are the first of 3 players to unlock it.
+CREATE INDEX IF NOT EXISTS d1_v ON d1 (v);         -- exists: not counted
+NOTICE:  relation "d1_v" already exists, skipping
 CREATE INDEX CONCURRENTLY d1_id ON d1 (id);
 NOTICE:  [SILVER] Achievement unlocked: No Locks (+25)
 DETAIL:  Create an index CONCURRENTLY. Total score: 80.
@@ -162,6 +166,26 @@ Unlocked by 3 of 3 players (100%).
 
 RESET pg_achievements.test_now;
 DROP TABLE fri_morning, saturday, fri_evening;
+-- mistakes of the user fail the command, but must not look like internal
+-- errors of the extension: no WARNING, and the session is still tracked
+\set VERBOSITY terse
+EXPLAIN (ANALYZE maybe) SELECT 1;
+ERROR:  analyze requires a Boolean value
+VACUUM (FULL maybe) d1;
+ERROR:  full requires a Boolean value
+DROP TABLE IF EXISTS a.b.c.d;
+ERROR:  improper relation name (too many dotted names): a.b.c.d
+DROP TABLE IF EXISTS pga_no_such_db.public.t;
+ERROR:  cross-database references are not implemented: "pga_no_such_db.public.t"
+CREATE TABLE IF NOT EXISTS pga_no_such_db.public.t (id int);
+ERROR:  cross-database references are not implemented: "pga_no_such_db.public.t" at character 28
+\set VERBOSITY default
+EXPLAIN (ANALYZE off, COSTS OFF) SELECT 1;   -- counts explain_any only
+ QUERY PLAN 
+------------
+ Result
+(1 row)
+
 \set QUIET off
 SELECT * FROM pga_counters();
              key              | value 
@@ -178,8 +202,9 @@ SELECT * FROM pga_counters();
  drop_database                |     1
  drop_table                   |    11
  emoji_name                   |     2
+ err_syntax                   |     3
  explain_analyze              |     1
- explain_any                  |     2
+ explain_any                  |     3
  listen_notify                |     2
  lock_exclusive               |     1
  long_name                    |     1
@@ -193,7 +218,7 @@ SELECT * FROM pga_counters();
  streak_days                  |     2
  truncate                     |     1
  vacuum_full                  |     1
-(27 rows)
+(28 rows)
 
 RESET ROLE;
 RESET

@@ -715,20 +715,106 @@ pga_add_event(PgaUtilityEvents *ev, PgaCounter c, int64 amount)
 	}
 }
 
-/* Value of a boolean option such as EXPLAIN (ANALYZE) or VACUUM (FULL). */
+/*
+ * Value of a boolean option such as EXPLAIN (ANALYZE) or VACUUM (FULL).
+ *
+ * This runs before the command, on a parse tree nobody has validated yet,
+ * so it must never throw: defGetBoolean() would turn a typo of the user,
+ * such as EXPLAIN (ANALYZE maybe), into an "internal error" that disables
+ * tracking for the whole session.  An invalid value counts as off; the
+ * command itself reports the error.  As in the commands, the last
+ * occurrence of an option wins.
+ */
 static bool
 pga_option_enabled(List *options, const char *name)
 {
 	ListCell   *lc;
+	bool		result = false;
 
 	foreach(lc, options)
 	{
 		DefElem    *opt = (DefElem *) lfirst(lc);
+		bool		value;
 
-		if (strcmp(opt->defname, name) == 0)
-			return defGetBoolean(opt);
+		if (strcmp(opt->defname, name) != 0)
+			continue;
+
+		if (opt->arg == NULL)
+			result = true;		/* bare option: EXPLAIN (ANALYZE) */
+		else if (IsA(opt->arg, Integer))
+			result = intVal(opt->arg) == 1;
+		else if (IsA(opt->arg, Boolean))
+			result = boolVal(opt->arg);
+		else if (IsA(opt->arg, String))
+			result = parse_bool(strVal(opt->arg), &value) && value;
+		else
+			result = false;
 	}
-	return false;
+	return result;
+}
+
+/*
+ * RangeVar of a possibly qualified name list, or NULL if the name has more
+ * than three parts.  makeRangeVarFromNameList() throws in that case, and
+ * this runs before the command has validated its own parse tree.
+ */
+static RangeVar *
+pga_rangevar_from_names(List *names)
+{
+	if (list_length(names) < 1 || list_length(names) > 3)
+		return NULL;
+	return makeRangeVarFromNameList(names);
+}
+
+/*
+ * Does a relation exist?  Never throws: a cross-database reference, which
+ * RangeVarGetRelid() refuses with an error, simply does not exist here (the
+ * command fails on it anyway).
+ */
+static bool
+pga_relation_exists(RangeVar *rv)
+{
+	if (rv == NULL || rv->relname == NULL)
+		return false;
+	if (rv->catalogname != NULL &&
+		strcmp(rv->catalogname, get_database_name(MyDatabaseId)) != 0)
+		return false;
+	return OidIsValid(RangeVarGetRelid(rv, NoLock, true));
+}
+
+/*
+ * Would CREATE INDEX IF NOT EXISTS find its index already there?  The index
+ * lives in the schema of its table.
+ */
+static bool
+pga_index_exists(IndexStmt *stmt)
+{
+	Oid			relid;
+
+	if (stmt->idxname == NULL || !pga_relation_exists(stmt->relation))
+		return false;
+	relid = RangeVarGetRelid(stmt->relation, NoLock, true);
+	return OidIsValid(get_relname_relid(stmt->idxname, get_rel_namespace(relid)));
+}
+
+/*
+ * Log level of a utility command, as GetCommandLogLevel() computes it, but
+ * without throwing: for EXPLAIN that function parses the ANALYZE option
+ * with defGetBoolean().  Only EXPLAIN ANALYZE of a DDL statement (CREATE
+ * TABLE AS) is DDL, as there.
+ */
+static LogStmtLevel
+pga_command_log_level(Node *parsetree)
+{
+	if (IsA(parsetree, ExplainStmt))
+	{
+		ExplainStmt *stmt = (ExplainStmt *) parsetree;
+
+		if (!pga_option_enabled(stmt->options, "analyze"))
+			return LOGSTMT_ALL;
+		return pga_command_log_level(stmt->query);
+	}
+	return GetCommandLogLevel(parsetree);
 }
 
 /*
@@ -862,6 +948,10 @@ pga_is_disable_attempt(AlterSystemStmt *stmt)
  * Decide, before execution, which counters a utility command bumps.  It
  * must run before the command: IF EXISTS checks need the catalog state
  * before the DROP, and the parse tree may be gone afterwards.
+ *
+ * The parse tree has not been validated yet, so nothing here may throw on
+ * bad input (see pga_option_enabled): an error would disable tracking for
+ * the session, although only the command of the user is wrong.
  */
 static void
 pga_classify_utility(Node *parsetree, const char *queryString,
@@ -880,8 +970,7 @@ pga_classify_utility(Node *parsetree, const char *queryString,
 				CreateStmt *stmt = (CreateStmt *) parsetree;
 
 				/* CREATE TABLE IF NOT EXISTS of an existing table: nothing new */
-				if (stmt->if_not_exists &&
-					OidIsValid(RangeVarGetRelid(stmt->relation, NoLock, true)))
+				if (stmt->if_not_exists && pga_relation_exists(stmt->relation))
 					break;
 				pga_add_event(ev, PGA_C_CREATE_TABLE, 1);
 				if (stmt->partspec != NULL || stmt->partbound != NULL)
@@ -894,7 +983,8 @@ pga_classify_utility(Node *parsetree, const char *queryString,
 			{
 				CreateTableAsStmt *stmt = (CreateTableAsStmt *) parsetree;
 
-				if (stmt->objtype == OBJECT_TABLE)
+				if (stmt->objtype == OBJECT_TABLE &&
+					!(stmt->if_not_exists && pga_relation_exists(stmt->into->rel)))
 				{
 					pga_add_event(ev, PGA_C_CREATE_TABLE, 1);
 					pga_check_table_name(stmt->into->rel, queryString, ev);
@@ -903,9 +993,16 @@ pga_classify_utility(Node *parsetree, const char *queryString,
 			break;
 
 		case T_IndexStmt:
-			pga_add_event(ev, PGA_C_CREATE_INDEX, 1);
-			if (((IndexStmt *) parsetree)->concurrent)
-				pga_add_event(ev, PGA_C_CREATE_INDEX_CONCURRENTLY, 1);
+			{
+				IndexStmt  *stmt = (IndexStmt *) parsetree;
+
+				/* CREATE INDEX IF NOT EXISTS of an existing index */
+				if (stmt->if_not_exists && pga_index_exists(stmt))
+					break;
+				pga_add_event(ev, PGA_C_CREATE_INDEX, 1);
+				if (stmt->concurrent)
+					pga_add_event(ev, PGA_C_CREATE_INDEX_CONCURRENTLY, 1);
+			}
 			break;
 
 		case T_CreateFunctionStmt:
@@ -937,9 +1034,9 @@ pga_classify_utility(Node *parsetree, const char *queryString,
 					/* with IF EXISTS, count only the tables that exist */
 					foreach(lc, stmt->objects)
 					{
-						RangeVar   *rv = makeRangeVarFromNameList((List *) lfirst(lc));
+						RangeVar   *rv = pga_rangevar_from_names((List *) lfirst(lc));
 
-						if (OidIsValid(RangeVarGetRelid(rv, NoLock, true)))
+						if (pga_relation_exists(rv))
 							n++;
 					}
 					pga_add_event(ev, PGA_C_DROP_TABLE, n);
@@ -1009,7 +1106,7 @@ pga_classify_utility(Node *parsetree, const char *queryString,
 			break;
 	}
 
-	if (GetCommandLogLevel(parsetree) == LOGSTMT_DDL && pga_is_friday_evening())
+	if (pga_command_log_level(parsetree) == LOGSTMT_DDL && pga_is_friday_evening())
 		pga_add_event(ev, PGA_C_DDL_FRIDAY_EVENING, 1);
 }
 

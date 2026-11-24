@@ -12,7 +12,9 @@ EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF) SELECT 1;
 CREATE TABLE d1 (id int, v int);
 CREATE TABLE IF NOT EXISTS d1 (id int);   -- exists: not counted
 CREATE TABLE d2 AS SELECT 1 AS id;
+CREATE TABLE IF NOT EXISTS d2 AS SELECT 1 AS id;   -- exists: not counted
 CREATE INDEX d1_v ON d1 (v);
+CREATE INDEX IF NOT EXISTS d1_v ON d1 (v);         -- exists: not counted
 CREATE INDEX CONCURRENTLY d1_id ON d1 (id);
 CREATE FUNCTION d_trg() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;
 CREATE PROCEDURE d_proc() LANGUAGE sql AS $$ SELECT 1 $$;
@@ -83,6 +85,17 @@ CREATE TABLE fri_evening (id int);
 SELECT 1 AS not_ddl;
 RESET pg_achievements.test_now;
 DROP TABLE fri_morning, saturday, fri_evening;
+
+-- mistakes of the user fail the command, but must not look like internal
+-- errors of the extension: no WARNING, and the session is still tracked
+\set VERBOSITY terse
+EXPLAIN (ANALYZE maybe) SELECT 1;
+VACUUM (FULL maybe) d1;
+DROP TABLE IF EXISTS a.b.c.d;
+DROP TABLE IF EXISTS pga_no_such_db.public.t;
+CREATE TABLE IF NOT EXISTS pga_no_such_db.public.t (id int);
+\set VERBOSITY default
+EXPLAIN (ANALYZE off, COSTS OFF) SELECT 1;   -- counts explain_any only
 
 \set QUIET off
 SELECT * FROM pga_counters();
