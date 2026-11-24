@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+Bug fixes.
+
+- Statements prepared with the extended protocol (pgbench `-M prepared`,
+  pgx, asyncpg, JDBC) were not counted at all, and neither were their days
+  for `streak_days`: every execution now counts. The extension turns query
+  ids on for that, as `pg_stat_statements` does. `PREPARE` and `EXECUTE`
+  count like the statement they prepare or run.
+- A typo such as `EXPLAIN (ANALYZE maybe)`, `VACUUM (FULL maybe)`, a name
+  with too many dots or a cross-database name in `DROP TABLE` was reported
+  as an internal error and switched tracking off for the session.
+- Long titles and descriptions of custom achievements were cut, possibly in
+  the middle of a character, which could switch tracking off for clients
+  with another encoding. In databases with another encoding than
+  `pg_achievements.database` the texts came out garbled; non-ASCII
+  characters are now shown as `?` there.
+- A custom achievement deleted and defined again could never be earned
+  again by roles that had it before, and deleted achievements still counted
+  in the score of notices.
+- After `ALTER ROLE ... RENAME` the sessions of the role went on counting
+  under the old name.
+- After `pg_terminate_backend()` of the launcher, the flush worker was never
+  restarted again until the server restarted. The launcher now comes back,
+  and only one flush worker ever runs.
+- `UPDATE` and `DELETE` without `WHERE` inside a CTE now count.
+  `CREATE TABLE ... AS` and `CREATE INDEX` with `IF NOT EXISTS` on an
+  existing object no longer count.
+
 ## 1.2.0 — 2026-11-21
 
 Achievements become social.

@@ -311,7 +311,12 @@ counters keep the largest value seen.
 
 Counting rules:
 
-- Only top-level statements count unless `track_nested` is on.
+- Only top-level statements count unless `track_nested` is on. A statement
+  run by a top-level `EXECUTE` counts like a top-level one.
+- A prepared statement counts every time it runs. Its features are found
+  again by its query id, so the extension turns query ids on (as
+  `pg_stat_statements` does): with `compute_query_id = auto` they show up in
+  `pg_stat_activity.query_id` and `EXPLAIN VERBOSE`.
 - `update_no_where`, `delete_no_where`, `null_eq`, `select_star`,
   `cartesian_product` and `not_in_subquery` count at parse analysis, because
   the attempt is what matters. Everything else counts only when the
@@ -320,7 +325,9 @@ Counting rules:
   `CREATE TABLE IF NOT EXISTS` or `CREATE EXTENSION IF NOT EXISTS` on an
   existing object) do not count.
 - The role is `current_user` (`GetUserId()`), so after `SET ROLE` events go to
-  the new role.
+  the new role. Progress is kept by role name: after `ALTER ROLE ... RENAME`
+  a role starts from scratch under its new name, and the old rows can be
+  removed with `achievements.forget_role()`.
 - Times of day and days (for `streak_days`) use the session `timezone`.
 - Background processes (autovacuum, replication, the worker itself) are never
   tracked.
@@ -352,9 +359,14 @@ Counting rules:
 - Achievements earned by an error (deadlock, syntax error) are reported while
   the transaction aborts, so psql may print the notice before or after the
   `ERROR` line.
-- A prepared statement is analyzed once, so its parse-time features
-  (`SELECT *`, CTEs, joins, …) count at its first execution only. The same
-  goes for statements cached by PL/pgSQL with `track_nested`.
+- With `compute_query_id = off` a prepared statement counts only when it
+  runs in the transaction that prepared it; drivers that prepare once and
+  execute later (pgx, asyncpg, JDBC, `pgbench -M prepared`) are then barely
+  counted. The attempt counters (`SELECT *`, `= NULL`, a missing `WHERE`, …)
+  count once per `PREPARE` in any case.
+- Achievement texts are stored in the encoding of `pg_achievements.database`.
+  Notices in a database with another encoding show non-ASCII characters of
+  custom achievements as `?`.
 - Client-side meta-commands such as `\d` are invisible; the server only sees
   the SQL they send.
 - `pg_dump` saves progress and custom achievements. Restoring into a running
