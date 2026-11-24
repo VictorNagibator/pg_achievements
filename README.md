@@ -400,22 +400,41 @@ both preload orders, hot standby and real deadlocks.
 
 ## Performance
 
-`bench/run.sh [pg_config]` measures the throughput loss with pgbench,
-comparing `pg_achievements.enabled = off` and `on` (median of several runs).
-PostgreSQL 18.7 built with `-O2`, scale 10, 5 × 15 s per case, 12 vCPU under
-WSL2:
+Every statement passes through the hooks, so tracking has a price. The worst
+case is many tiny statements on a CPU-saturated server: `bench/run.sh`
+measures it with pgbench, comparing a server **without the library** with
+one that tracks (the baseline is not `enabled = off`, which still pays for
+the hooks). All clients use the same role, so they share its counters.
 
-| Script | Clients | Overhead |
-| --- | --- | --- |
-| select-only (`-S`) | 1 | 1.4% |
-| select-only (`-S`) | 16 | 1.3% |
-| TPC-B-like | 1 | within noise (−5.1%) |
-| TPC-B-like | 16 | 2.4%, within noise |
+PostgreSQL 18.7 built with `-O2`, scale 10, median of 5 runs of 15 s,
+AMD Ryzen 5 5600 (12 vCPU) under WSL2:
 
-The TPC-B-like runs are I/O bound and vary by about ±5% between runs on this
-machine (the extension "won" the single-client case), so they cannot confirm
-the 2% target either way; the CPU-bound select-only case does. Rerun the
-script on your hardware for numbers that matter to you.
+| Case | Clients | Without, tps | With, tps | Cost |
+| --- | ---: | ---: | ---: | ---: |
+| select-only (`-S`) | 1 | 8368 | 8040 | 3.9% |
+| select-only (`-S`) | 16 | 162040 | 144061 | 11.1% |
+| select-only, prepared (`-S -M prepared`) | 1 | 9792 | 9816 | within noise |
+| select-only, prepared (`-S -M prepared`) | 16 | 250386 | 254766 | within noise |
+| TPC-B-like | 1 | 1267 | 1258 | 0.7% |
+| TPC-B-like | 16 | 19949 | 17664 | 11.5% |
+
+How to read it:
+
+- The 16-client select-only case runs one trivial indexed read per
+  transaction at 160k transactions per second; the extension's fixed cost
+  per statement and per commit (counting, flushing deltas to shared memory,
+  checking thresholds) is then about a tenth of the work. Under callgrind
+  the commit callback and the executor hook take about 8% of the
+  instructions of a backend; the parse-analysis hook is negligible.
+- Statements that do real work dilute that cost: with one client, where
+  latency matters more than CPU, it is a few percent at most.
+- This machine is noisy: repeated runs of the same case differ by up to
+  ±8%, so differences of a few percent are not significant. Rerun the
+  script on your hardware for numbers that matter to you.
+
+```sh
+bench/run.sh /path/to/pg_config      # env: DURATION, ROUNDS, SCALE, CLIENTS
+```
 
 ## License
 
