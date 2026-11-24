@@ -1,6 +1,6 @@
 name: Achievement idea
 description: Suggest a new achievement for the builtin catalog.
-labels: [enhancement]
+labels: ["achievement idea"]
 body:
   - type: markdown
     attributes:
