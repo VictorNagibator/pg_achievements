@@ -121,9 +121,18 @@ pga_current_entry(void)
 	return cur_entry;
 }
 
-/* Syscache callback of pg_authid: a role may have been renamed. */
+/*
+ * Syscache callback of pg_authid: a role may have been renamed.
+ * PostgreSQL 19 passes the cache id as a SysCacheIdentifier.
+ */
+#if PG_VERSION_NUM >= 190000
+typedef SysCacheIdentifier PgaCacheId;
+#else
+typedef int PgaCacheId;
+#endif
+
 static void
-pga_role_changed(Datum arg, int cacheid, uint32 hashvalue)
+pga_role_changed(Datum arg, PgaCacheId cacheid, uint32 hashvalue)
 {
 	cur_role_stale = true;
 }
