@@ -1,4 +1,4 @@
--- ALTER EXTENSION UPDATE from 1.0 (through 1.1) gives the same catalog,
+-- ALTER EXTENSION UPDATE from 1.0 (through 1.1 and 1.2) gives the same catalog,
 -- functions, triggers and views as a fresh install of the latest version,
 -- and keeps the progress made under 1.0.
 SET pg_achievements.notify = off;
@@ -23,7 +23,7 @@ SELECT achievements.sync();
 SELECT achievements.version();
                               version                              
 -------------------------------------------------------------------
- pg_achievements 1.0 (library 1.2.1), catalog 1.0, 46 achievements
+ pg_achievements 1.0 (library 1.2.2), catalog 1.0, 46 achievements
 (1 row)
 
 -- progress under 1.0: a platinum achievement and the old meta one
@@ -52,7 +52,7 @@ SELECT achievements.define('old_shiny', 'Old Shiny', 'Shiny.', 'platinum', 'trun
  
 (1 row)
 
-ALTER EXTENSION pg_achievements UPDATE TO '1.2';
+ALTER EXTENSION pg_achievements UPDATE TO '1.2.2';
 SELECT achievements.sync();
  sync 
 ------
@@ -60,9 +60,9 @@ SELECT achievements.sync();
 (1 row)
 
 SELECT achievements.version();
-                              version                              
--------------------------------------------------------------------
- pg_achievements 1.2 (library 1.2.1), catalog 1.1, 69 achievements
+                               version                               
+---------------------------------------------------------------------
+ pg_achievements 1.2.2 (library 1.2.2), catalog 1.1, 69 achievements
 (1 row)
 
 -- the builtin catalog and the functions match a fresh install
@@ -145,7 +145,7 @@ ERROR:  custom achievements use codes of new builtin achievements: streak
 SELECT achievements.version();
                               version                              
 -------------------------------------------------------------------
- pg_achievements 1.0 (library 1.2.1), catalog 1.0, 47 achievements
+ pg_achievements 1.0 (library 1.2.2), catalog 1.0, 47 achievements
 (1 row)
 
 -- without it the update goes through
@@ -154,6 +154,6 @@ ALTER EXTENSION pg_achievements UPDATE TO '1.1';
 SELECT achievements.version();
                               version                              
 -------------------------------------------------------------------
- pg_achievements 1.1 (library 1.2.1), catalog 1.1, 68 achievements
+ pg_achievements 1.1 (library 1.2.2), catalog 1.1, 68 achievements
 (1 row)
 

@@ -1,4 +1,4 @@
--- ALTER EXTENSION UPDATE from 1.0 (through 1.1) gives the same catalog,
+-- ALTER EXTENSION UPDATE from 1.0 (through 1.1 and 1.2) gives the same catalog,
 -- functions, triggers and views as a fresh install of the latest version,
 -- and keeps the progress made under 1.0.
 SET pg_achievements.notify = off;
@@ -25,7 +25,7 @@ SELECT achievements.grant('t_upgrade', 'platinum_collection');
 -- a custom platinum achievement is allowed in 1.0 and survives the update
 SELECT achievements.define('old_shiny', 'Old Shiny', 'Shiny.', 'platinum', 'truncate', 1);
 
-ALTER EXTENSION pg_achievements UPDATE TO '1.2';
+ALTER EXTENSION pg_achievements UPDATE TO '1.2.2';
 SELECT achievements.sync();
 SELECT achievements.version();
 

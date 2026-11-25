@@ -113,11 +113,18 @@ The extension can only be created in `pg_achievements.database`, but events
 are collected from every database of the cluster. If that database does not
 exist yet, the background worker waits until it is created.
 
-### Upgrading from 1.2.0
+### Upgrading from 1.2.0 or 1.2.1
 
-1.2.1 changes only the library: install it and restart the server. The SQL
-objects stay at version 1.2, so no `ALTER EXTENSION` is needed;
-`achievements.version()` then reports `library 1.2.1`.
+Install the new version, restart the server and update the SQL objects:
+
+```sql
+ALTER EXTENSION pg_achievements UPDATE;
+```
+
+1.2.2 adds PostgreSQL 14 and 15 support. On PostgreSQL 15 and later the
+update changes nothing visible; on 14 it hides `merge_conflict` from the
+views (see [Known limitations](#known-limitations)). Until the update the
+1.2.2 library works with the 1.2 SQL objects.
 
 ### Upgrading from 1.1
 
@@ -375,9 +382,11 @@ Counting rules:
   Notices in a database with another encoding show non-ASCII characters of
   custom achievements as `?`.
 - PostgreSQL 14 has no `MERGE`, so `merge_conflict` cannot be earned there.
-  It stays in `achievements.progress` and the other views, but
-  `platinum_collection` ("collect every other achievement") does not
-  require it on 14.
+  On 14 it is left out of `achievements.progress`, `catalog_public`,
+  `rarity` and the count of `achievements.version()`,
+  `platinum_collection` does not require it, and `achievements.define()`
+  refuses the `merge` counter. It comes back after `pg_upgrade` to a newer
+  version.
 - Client-side meta-commands such as `\d` are invisible; the server only sees
   the SQL they send.
 - `pg_dump` saves progress and custom achievements. Restoring into a running
@@ -411,8 +420,9 @@ both preload orders, hot standby and real deadlocks.
 
 A few regression outputs differ on PostgreSQL 14 (no `MERGE`, another
 `pg_terminate_backend` warning): `test/expected/*_1.out` hold the PostgreSQL
-14 variants, and pg_regress accepts either file. When a change touches
-`01_analyze`, `05_views` or `07_achievements`, regenerate both.
+14 variants, and pg_regress accepts either file. When a change touches a
+test that has such a file (`00_setup`, `01_analyze`, `05_views`,
+`07_achievements`, `09_upgrade`), regenerate both.
 
 ## Performance
 

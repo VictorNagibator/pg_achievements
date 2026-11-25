@@ -1,11 +1,16 @@
 # Changelog
 
-## Unreleased
+## Unreleased (1.2.2)
+
+PostgreSQL 14 and 15 support. Install the new version, restart the server
+and run `ALTER EXTENSION pg_achievements UPDATE`.
 
 - PostgreSQL 14 and 15 are supported (CI and Docker images `pg14`, `pg15`).
-  Only the library changes, the SQL stays 1.2. On 14, which has no `MERGE`,
-  `merge_conflict` cannot be earned, and the platinum
-  `platinum_collection` does not require it.
+- PostgreSQL 14 has no `MERGE`, so `merge_conflict` cannot be earned there.
+  On 14 it is left out of `achievements.progress`, `catalog_public`,
+  `rarity` and `achievements.version()`, `platinum_collection` does not
+  require it, and `achievements.define()` refuses the `merge` counter.
+  On 15 and later nothing changes.
 
 ## 1.2.1 — 2026-11-24
 

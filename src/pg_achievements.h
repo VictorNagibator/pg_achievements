@@ -19,7 +19,7 @@
 #include "storage/lwlock.h"
 #include "storage/spin.h"
 
-#define PGA_VERSION			"1.2.1"
+#define PGA_VERSION			"1.2.2"
 #define PGA_SCHEMA			"achievements"
 #define PGA_EXTNAME			"pg_achievements"
 

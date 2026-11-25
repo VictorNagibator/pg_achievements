@@ -82,8 +82,9 @@ is($node->safe_psql('postgres', q{
 is($node->safe_psql('postgres', q{
 	SELECT count(*) FROM achievements.rarity}),
 	$node->safe_psql('postgres', q{
-	SELECT count(*) FROM achievements.catalog WHERE enabled}),
-	'rarity lists every enabled achievement');
+	SELECT count(*) FROM achievements.catalog c
+	WHERE enabled AND NOT achievements._counter_unsupported(c.counter_key)}),
+	'rarity lists every enabled achievement this server supports');
 
 $node->stop;
 done_testing();

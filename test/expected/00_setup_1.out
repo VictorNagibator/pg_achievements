@@ -1,0 +1,78 @@
+-- Installation and basic sanity checks.
+-- The connecting superuser earns a few achievements here (Welcome etc.).
+CREATE EXTENSION pg_achievements;
+SELECT achievements.sync();
+NOTICE:  [BRONZE] Achievement unlocked: Welcome (+10)
+DETAIL:  Connect to the server for the first time. Total score: 10.
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 20.
+ sync 
+------
+ t
+(1 row)
+
+SELECT achievements.version();
+                               version                               
+---------------------------------------------------------------------
+ pg_achievements 1.2.2 (library 1.2.2), catalog 1.1, 67 achievements
+(1 row)
+
+-- 58 counters, 68 achievements: 16 bronze, 21 silver, 30 gold, 1 platinum
+SELECT count(*) AS counters FROM achievements._counter_keys();
+ counters 
+----------
+       58
+(1 row)
+
+SELECT tier, count(*), min(points), max(points)
+FROM achievements.catalog GROUP BY tier ORDER BY tier;
+   tier   | count | min | max 
+----------+-------+-----+-----
+ bronze   |    16 |  10 |  10
+ silver   |    21 |  25 |  25
+ gold     |    30 |  50 |  50
+ platinum |     1 | 300 | 300
+(4 rows)
+
+-- every builtin achievement refers to a known counter or a meta key
+SELECT code, counter_key FROM achievements.catalog
+WHERE counter_key NOT IN (SELECT key FROM achievements._counter_keys())
+ORDER BY code;
+NOTICE:  [GOLD] Achievement unlocked: NOT IN Trouble (+50)
+DETAIL:  Use NOT IN with a subquery (mind the NULLs). Total score: 70.
+        code         |   counter_key    
+---------------------+------------------
+ bronze_collector    | meta:tier:bronze
+ gold_rush           | meta:tier:gold
+ platinum_collection | meta:all
+(3 rows)
+
+-- the extension refuses to be created in another database
+CREATE DATABASE pga_other;
+\c pga_other
+\set VERBOSITY terse
+CREATE EXTENSION pg_achievements;
+ERROR:  pg_achievements must be created in database "contrib_regression"
+\set VERBOSITY default
+\c contrib_regression
+SET pg_achievements.notify = off;
+DROP DATABASE pga_other;
+RESET pg_achievements.notify;
+-- helper for the other tests: a fresh role that collects events
+CREATE FUNCTION pga_test_role(name text, superuser bool DEFAULT false)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+    EXECUTE format('CREATE ROLE %I %s', name, CASE WHEN superuser THEN 'SUPERUSER' ELSE '' END);
+    EXECUTE format('GRANT ALL ON SCHEMA public TO %I', name);
+END $$;
+NOTICE:  [BRONZE] Achievement unlocked: Functionary (+10)
+DETAIL:  Create your first function or procedure. Total score: 130.
+-- counters of the current role, as a compact list
+CREATE FUNCTION pga_counters()
+RETURNS TABLE (key text, value bigint) LANGUAGE sql AS $$
+    SELECT k.key, achievements.counter(k.key)
+    FROM achievements._counter_keys() k
+    WHERE achievements.counter(k.key) <> 0
+      AND k.key <> 'streak_state'     -- packed day and run, see 01_analyze
+    ORDER BY k.key
+$$;

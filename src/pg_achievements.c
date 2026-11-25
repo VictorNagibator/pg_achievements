@@ -109,6 +109,7 @@ PG_FUNCTION_INFO_V1(pga_sql_reset);
 PG_FUNCTION_INFO_V1(pga_sql_grant);
 PG_FUNCTION_INFO_V1(pga_sql_counter_keys);
 PG_FUNCTION_INFO_V1(pga_sql_library_version);
+PG_FUNCTION_INFO_V1(pga_sql_counter_unsupported);
 
 /* SQL functions cannot work if the library was not preloaded. */
 static void
@@ -295,4 +296,20 @@ Datum
 pga_sql_library_version(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_TEXT_P(cstring_to_text(PGA_VERSION));
+}
+
+/*
+ * achievements._counter_unsupported(key text) RETURNS bool
+ *
+ * True for a known counter this server can never bump (MERGE on 14, see
+ * pga_counter_supported); false for every other key, unknown and meta keys
+ * included.  The views hide achievements on such counters.
+ */
+Datum
+pga_sql_counter_unsupported(PG_FUNCTION_ARGS)
+{
+	char	   *key = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	int			c = pga_counter_by_key(key);
+
+	PG_RETURN_BOOL(c >= 0 && !pga_counter_supported(c));
 }

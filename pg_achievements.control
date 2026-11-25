@@ -1,6 +1,6 @@
 # pg_achievements extension
 comment = 'Game achievements for PostgreSQL users'
-default_version = '1.2'
+default_version = '1.2.2'
 module_pathname = '$libdir/pg_achievements'
 relocatable = false
 schema = achievements
