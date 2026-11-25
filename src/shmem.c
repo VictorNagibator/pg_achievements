@@ -25,7 +25,9 @@
 PgaShared  *pga_shared = NULL;
 HTAB	   *pga_roles = NULL;
 
+#if PG_VERSION_NUM >= 150000
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
+#endif
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 
 /* Shared memory needed: the fixed struct plus the role hash table. */
@@ -39,12 +41,18 @@ pga_shmem_size(void)
 	return size;
 }
 
-/* shmem_request_hook: reserve memory and one named LWLock. */
+/*
+ * Reserve memory and one named LWLock.  From 15 on this runs as
+ * shmem_request_hook; 14 has no such hook and expects the requests
+ * straight from _PG_init, so pga_shmem_install_hooks calls it directly.
+ */
 static void
 pga_shmem_request(void)
 {
+#if PG_VERSION_NUM >= 150000
 	if (prev_shmem_request_hook)
 		prev_shmem_request_hook();
+#endif
 
 	RequestAddinShmemSpace(pga_shmem_size());
 	RequestNamedLWLockTranche(PGA_EXTNAME, 1);
@@ -102,8 +110,12 @@ pga_shmem_startup(void)
 void
 pga_shmem_install_hooks(void)
 {
+#if PG_VERSION_NUM >= 150000
 	prev_shmem_request_hook = shmem_request_hook;
 	shmem_request_hook = pga_shmem_request;
+#else
+	pga_shmem_request();
+#endif
 	prev_shmem_startup_hook = shmem_startup_hook;
 	shmem_startup_hook = pga_shmem_startup;
 }

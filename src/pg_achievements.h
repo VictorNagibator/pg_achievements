@@ -118,6 +118,7 @@ typedef struct PgaCounterInfo
 extern const PgaCounterInfo pga_counter_info[PGA_NUM_COUNTERS];
 
 extern int	pga_counter_by_key(const char *key);
+extern bool pga_counter_supported(int c);
 
 /* Tiers, in the same order as the SQL enum achievements.tier */
 typedef enum PgaTier

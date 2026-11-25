@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- PostgreSQL 14 and 15 are supported (CI and Docker images `pg14`, `pg15`).
+  Only the library changes, the SQL stays 1.2. On 14, which has no `MERGE`,
+  `merge_conflict` cannot be earned, and the platinum
+  `platinum_collection` does not require it.
+
 ## 1.2.1 — 2026-11-24
 
 Bug fixes. Only the library changes: install it and restart the server,

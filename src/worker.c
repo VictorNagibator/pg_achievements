@@ -358,7 +358,8 @@ pga_parse_counter_key(const char *key, PgaCatalogSlot *slot)
 	{
 		slot->counter = pga_counter_by_key(key);
 		slot->meta_tier = -1;
-		if (slot->counter < 0)
+		/* unknown key, or a feature this server lacks (MERGE on 14) */
+		if (!pga_counter_supported(slot->counter))
 			slot->active = false;
 	}
 }

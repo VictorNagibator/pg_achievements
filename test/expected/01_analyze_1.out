@@ -1,0 +1,428 @@
+-- Counters detected at parse analysis and committed at ExecutorEnd.
+SELECT pga_test_role('t_analyze');
+ pga_test_role 
+---------------
+ 
+(1 row)
+
+CREATE TABLE t1 (id int PRIMARY KEY, a int, j jsonb);
+NOTICE:  [BRONZE] Achievement unlocked: First Table (+10)
+DETAIL:  Create your first table. Total score: 140.
+CREATE TABLE t2 (id int PRIMARY KEY, t1_id int);
+INSERT INTO t1 SELECT g, g, jsonb_build_object('k', g) FROM generate_series(1, 10) g;
+INSERT INTO t2 SELECT g, g FROM generate_series(1, 10) g;
+GRANT ALL ON t1, t2 TO t_analyze;
+SET ROLE t_analyze;
+\set QUIET on
+-- stmt_select
+SELECT 1 AS one;
+NOTICE:  [BRONZE] Achievement unlocked: Hello, World (+10)
+DETAIL:  Run your first SELECT. Total score: 10.
+Unlocked by 2 of 2 players (100%).
+ one 
+-----
+   1
+(1 row)
+
+-- select_star, also with a qualifier
+SELECT * FROM t1 WHERE id = 1;
+ id | a |    j     
+----+---+----------
+  1 | 1 | {"k": 1}
+(1 row)
+
+SELECT t1.* FROM t1 WHERE id = 1;
+ id | a |    j     
+----+---+----------
+  1 | 1 | {"k": 1}
+(1 row)
+
+SELECT "t1".* FROM t1 WHERE id = 1;
+ id | a |    j     
+----+---+----------
+  1 | 1 | {"k": 1}
+(1 row)
+
+-- not a star: column list, count(*), multiplication
+SELECT id, a FROM t1 WHERE id = 1;
+ id | a 
+----+---
+  1 | 1
+(1 row)
+
+SELECT count(*) FROM t1;
+ count 
+-------
+    10
+(1 row)
+
+SELECT a * 2 FROM t1 WHERE id = 1;
+ ?column? 
+----------
+        2
+(1 row)
+
+-- cte_any, cte_recursive
+WITH x AS (SELECT 1 AS v) SELECT v FROM x;
+NOTICE:  [BRONZE] Achievement unlocked: WITH Love (+10)
+DETAIL:  Run a query with a common table expression. Total score: 20.
+You are the first of 2 players to unlock it.
+ v 
+---
+ 1
+(1 row)
+
+WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3)
+SELECT count(*) FROM r;
+NOTICE:  [SILVER] Achievement unlocked: Recursion: See Recursion (+25)
+DETAIL:  Run a WITH RECURSIVE query. Total score: 45.
+You are the first of 2 players to unlock it.
+ count 
+-------
+     3
+(1 row)
+
+-- window_func
+SELECT id, row_number() OVER (ORDER BY id) FROM t1 WHERE id < 3;
+NOTICE:  [SILVER] Achievement unlocked: Open Window (+25)
+DETAIL:  Use a window function. Total score: 70.
+You are the first of 2 players to unlock it.
+ id | row_number 
+----+------------
+  1 |          1
+  2 |          2
+(2 rows)
+
+-- lateral
+SELECT t1.id, s.x FROM t1, LATERAL (SELECT t1.a + 1 AS x) s WHERE t1.id = 1;
+NOTICE:  [SILVER] Achievement unlocked: Lateral Thinking (+25)
+DETAIL:  Use LATERAL. Total score: 95.
+You are the first of 2 players to unlock it.
+ id | x 
+----+---
+  1 | 2
+(1 row)
+
+-- jsonb_ops: four operators in one query, then one more
+SELECT j -> 'k', j ->> 'k', j @> '{"k": 1}', j ? 'k' FROM t1 WHERE id = 1;
+ ?column? | ?column? | ?column? | ?column? 
+----------+----------+----------+----------
+ 1        | 1        | t        | t
+(1 row)
+
+SELECT j -> 0 FROM t1 WHERE id = 1;
+ ?column? 
+----------
+ 
+(1 row)
+
+-- join_count_max keeps the maximum
+SELECT count(*) FROM t1 JOIN t2 ON t2.t1_id = t1.id;
+NOTICE:  [BRONZE] Achievement unlocked: All Connected (+10)
+DETAIL:  Run a query with an explicit JOIN. Total score: 105.
+You are the first of 2 players to unlock it.
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM t1 a JOIN t2 b ON b.t1_id = a.id JOIN t1 c ON c.id = b.id;
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM t1 JOIN t2 ON t2.t1_id = t1.id;
+ count 
+-------
+    10
+(1 row)
+
+-- null_eq: counted even though the query returns nothing
+SELECT id FROM t1 WHERE a = NULL;
+NOTICE:  [BRONZE] Achievement unlocked: NULL Is Not Equal to NULL (+10)
+DETAIL:  Compare with = NULL instead of IS NULL. Total score: 115.
+You are the first of 2 players to unlock it.
+ id 
+----
+(0 rows)
+
+-- update_no_where / delete_no_where: counted at analysis, even on failure
+UPDATE t1 SET a = a;
+NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE (+50)
+DETAIL:  UPDATE without a WHERE clause. Total score: 165.
+You are the first of 2 players to unlock it.
+BEGIN;
+DELETE FROM t2;
+NOTICE:  [GOLD] Achievement unlocked: Forgot WHERE, Part 2 (+50)
+DETAIL:  DELETE without a WHERE clause. Total score: 215.
+You are the first of 2 players to unlock it.
+ROLLBACK;
+NOTICE:  [BRONZE] Achievement unlocked: Ctrl+Z (+10)
+DETAIL:  Roll back a transaction with ROLLBACK. Total score: 225.
+You are the first of 2 players to unlock it.
+UPDATE t1 SET a = 1 / 0;
+ERROR:  division by zero
+-- with WHERE: nothing
+UPDATE t1 SET a = a WHERE id = 1;
+-- inside a CTE too (one more of each)
+WITH u AS (UPDATE t1 SET a = a RETURNING id) SELECT count(*) FROM u;
+NOTICE:  [BRONZE] Achievement unlocked: Returning Hero (+10)
+DETAIL:  Use RETURNING in a data-modifying statement. Total score: 235.
+You are the first of 2 players to unlock it.
+ count 
+-------
+    10
+(1 row)
+
+BEGIN;
+WITH d AS (DELETE FROM t2 RETURNING id) SELECT count(*) FROM d;
+ count 
+-------
+    10
+(1 row)
+
+ROLLBACK;
+-- terminate_backend (pid -1 does not exist, the call still succeeds)
+SELECT pg_terminate_backend(-1);
+WARNING:  PID -1 is not a PostgreSQL server process
+NOTICE:  [GOLD] Achievement unlocked: Executioner (+50)
+DETAIL:  Call pg_terminate_backend. Total score: 285.
+You are the first of 2 players to unlock it.
+ pg_terminate_backend 
+----------------------
+ f
+(1 row)
+
+-- upsert and returning; DELETE ... RETURNING * is not a SELECT *
+INSERT INTO t1 VALUES (1, 1) ON CONFLICT (id) DO NOTHING;
+NOTICE:  [BRONZE] Achievement unlocked: Upsert Happens (+10)
+DETAIL:  Run INSERT ... ON CONFLICT. Total score: 295.
+You are the first of 2 players to unlock it.
+INSERT INTO t1 VALUES (11, 11) ON CONFLICT (id) DO UPDATE SET a = EXCLUDED.a RETURNING id;
+ id 
+----
+ 11
+(1 row)
+
+DELETE FROM t1 WHERE id = 11 RETURNING *;
+ id | a  | j 
+----+----+---
+ 11 | 11 | 
+(1 row)
+
+-- merge
+MERGE INTO t2 USING t1 ON t2.id = t1.id WHEN NOT MATCHED THEN DO NOTHING;
+ERROR:  syntax error at or near "MERGE"
+LINE 1: MERGE INTO t2 USING t1 ON t2.id = t1.id WHEN NOT MATCHED THE...
+        ^
+-- skip_locked: NOWAIT does not count
+SELECT id FROM t1 WHERE id = 1 FOR UPDATE SKIP LOCKED;
+NOTICE:  [SILVER] Achievement unlocked: Queue Master (+25)
+DETAIL:  Lock rows with SKIP LOCKED. Total score: 320.
+You are the first of 2 players to unlock it.
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM t1 WHERE id = 1 FOR UPDATE NOWAIT;
+ id 
+----
+  1
+(1 row)
+
+-- grouping_sets
+SELECT a, count(*) FROM t1 WHERE id = 1 GROUP BY CUBE (a) ORDER BY a;
+NOTICE:  [SILVER] Achievement unlocked: Cube Master (+25)
+DETAIL:  Use GROUPING SETS, ROLLUP or CUBE. Total score: 345.
+You are the first of 2 players to unlock it.
+ a | count 
+---+-------
+ 1 |     1
+   |     1
+(2 rows)
+
+-- cartesian_product: tables joined without any condition
+SELECT count(*) FROM t1, t2;
+NOTICE:  [GOLD] Achievement unlocked: Cartesian Explosion (+50)
+DETAIL:  Join tables without any join condition. Total score: 395.
+You are the first of 2 players to unlock it.
+ count 
+-------
+   100
+(1 row)
+
+SELECT count(*) FROM t1 CROSS JOIN t2;
+ count 
+-------
+   100
+(1 row)
+
+-- with a condition, or with a function instead of a second table: nothing
+SELECT count(*) FROM t1, t2 WHERE t2.t1_id = t1.id;
+ count 
+-------
+    10
+(1 row)
+
+SELECT count(*) FROM t1, generate_series(1, 2);
+ count 
+-------
+    20
+(1 row)
+
+-- not_in_subquery: only NOT IN with a subquery
+SELECT count(*) FROM t1 WHERE id NOT IN (SELECT t1_id FROM t2);
+NOTICE:  [GOLD] Achievement unlocked: NOT IN Trouble (+50)
+DETAIL:  Use NOT IN with a subquery (mind the NULLs). Total score: 445.
+Unlocked by 2 of 2 players (100%).
+ count 
+-------
+     0
+(1 row)
+
+SELECT count(*) FROM t1 WHERE id NOT IN (1, 2);
+ count 
+-------
+     8
+(1 row)
+
+SELECT count(*) FROM t1 WHERE id IN (SELECT t1_id FROM t2);
+ count 
+-------
+    10
+(1 row)
+
+-- listen_notify via the function
+SELECT pg_notify('t_analyze', 'hi');
+NOTICE:  [SILVER] Achievement unlocked: Are You Listening? (+25)
+DETAIL:  Use LISTEN, NOTIFY or pg_notify(). Total score: 470.
+You are the first of 2 players to unlock it.
+ pg_notify 
+-----------
+ 
+(1 row)
+
+-- a failed query does not count stmt_select
+SELECT 1 / 0;
+ERROR:  division by zero
+-- night_query: 03:00-05:00 in the session time zone
+SET pg_achievements.test_now = '2026-11-18 03:30:00-08';
+NOTICE:  [BRONZE] Achievement unlocked: Night Owl (+10)
+DETAIL:  Run a query between 03:00 and 05:00. Total score: 480.
+You are the first of 2 players to unlock it.
+SELECT 2 AS night;
+ night 
+-------
+     2
+(1 row)
+
+-- SET and RESET run "at night" too and count as night queries
+SET timezone = 'Asia/Novosibirsk';  -- 18:30 there: not night
+SELECT 3 AS day;
+ day 
+-----
+   3
+(1 row)
+
+RESET timezone;
+-- streak_days: active days in a row, a gap starts a new run; the first
+-- day is the configured test_now (2026-11-18), which is no run with these
+SET pg_achievements.test_now = '2026-12-30 12:00:00-08';
+SELECT 'day 1' AS streak;
+ streak 
+--------
+ day 1
+(1 row)
+
+SELECT 'day 1 again' AS streak;
+   streak    
+-------------
+ day 1 again
+(1 row)
+
+SET pg_achievements.test_now = '2026-12-31 12:00:00-08';
+SELECT 'day 2' AS streak;
+ streak 
+--------
+ day 2
+(1 row)
+
+-- new_year_query: the first minute of the year, local time
+-- (the SET right after it also runs in that minute and counts too)
+SET pg_achievements.test_now = '2027-01-01 00:00:30-08';
+NOTICE:  [GOLD] Achievement unlocked: Happy New Query (+50)
+DETAIL:  Run a query in the first minute of a new year. Total score: 530.
+You are the first of 2 players to unlock it.
+SELECT 'day 3, happy new year' AS streak;
+        streak         
+-----------------------
+ day 3, happy new year
+(1 row)
+
+SET pg_achievements.test_now = '2027-01-01 00:01:00-08';
+SELECT 'one minute late' AS streak;
+     streak      
+-----------------
+ one minute late
+(1 row)
+
+SET pg_achievements.test_now = '2027-01-03 12:00:00-08';
+SELECT 'a gap: day 1 again' AS streak;
+       streak       
+--------------------
+ a gap: day 1 again
+(1 row)
+
+-- back in time: ignored
+RESET pg_achievements.test_now;
+SELECT 'the past' AS streak;
+  streak  
+----------
+ the past
+(1 row)
+
+-- streak_state packs the last active day and the current run
+SELECT to_char(to_date((achievements.counter('streak_state') >> 32)::text, 'J'), 'YYYY-MM-DD') AS last_day,
+       achievements.counter('streak_state') & 4294967295 AS run,
+       achievements.counter('streak_days') AS longest;
+  last_day  | run | longest 
+------------+-----+---------
+ 2027-01-03 |   1 |       3
+(1 row)
+
+\set QUIET off
+SELECT * FROM pga_counters();
+         key          | value 
+----------------------+-------
+ cartesian_product    |     2
+ cte_any              |     4
+ cte_recursive        |     1
+ delete_no_where      |     2
+ err_division_by_zero |     2
+ err_syntax           |     1
+ grouping_sets        |     1
+ join_count_max       |     2
+ jsonb_ops            |     5
+ lateral              |     1
+ listen_notify        |     1
+ new_year_query       |     2
+ night_query          |     3
+ not_in_subquery      |     1
+ null_eq              |     1
+ returning            |     4
+ rollback             |     2
+ rows_processed       |    65
+ select_star          |     4
+ skip_locked          |     1
+ stmt_select          |    41
+ streak_days          |     3
+ terminate_backend    |     1
+ update_no_where      |     3
+ upsert               |     2
+ window_func          |     1
+(26 rows)
+
+RESET ROLE;
+RESET

@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: [16, 17, 18, 19]
+        pg: [14, 15, 16, 17, 18, 19]
     name: Image for PostgreSQL ${{ matrix.pg }}
     env:
       LATEST_PG: 18   # the main development version, as in the Dockerfile

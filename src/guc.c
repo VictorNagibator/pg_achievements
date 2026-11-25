@@ -56,7 +56,12 @@ check_test_now(char **newval, void **extra, GucSource source)
 	 * Parsing a timestamptz needs catalog access only for named time zones,
 	 * which the tests do not use; numeric offsets are handled by datetime.c.
 	 */
+#if PG_VERSION_NUM >= 160000
 	ts = guc_malloc(LOG, sizeof(TimestampTz));
+#else
+	/* before 16 the GUC machinery frees "extra" with plain free() */
+	ts = malloc(sizeof(TimestampTz));
+#endif
 	if (ts == NULL)
 		return false;
 	*ts = DatumGetTimestampTz(DirectFunctionCall3(timestamptz_in,
@@ -231,7 +236,11 @@ pga_define_gucs(void)
 							 NULL, NULL, NULL);
 #endif
 
+#if PG_VERSION_NUM >= 150000
 	MarkGUCPrefixReserved("pg_achievements");
+#else
+	EmitWarningsOnPlaceholders("pg_achievements");	/* renamed in 15 */
+#endif
 }
 
 /* Current wall-clock time, possibly faked in test builds. */

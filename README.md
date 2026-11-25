@@ -1,7 +1,7 @@
 # pg_achievements
 
 [![CI](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorNagibator/pg_achievements/actions/workflows/ci.yml)
-[![PostgreSQL 16 | 17 | 18 | 19](https://img.shields.io/badge/PostgreSQL-16%20%7C%2017%20%7C%2018%20%7C%2019-336791?logo=postgresql&logoColor=white)](#requirements)
+[![PostgreSQL 14 – 19](https://img.shields.io/badge/PostgreSQL-14%20%E2%80%93%2019-336791?logo=postgresql&logoColor=white)](#requirements)
 [![PGXN version](https://badge.fury.io/pg/pg_achievements.svg)](https://pgxn.org/dist/pg_achievements/)
 [![pgext.cloud](https://img.shields.io/badge/pgext.cloud-pg__achievements-336791)](https://pgext.cloud/ext/pg_achievements)
 [![License: PostgreSQL](https://img.shields.io/badge/license-PostgreSQL-blue)](LICENSE)
@@ -52,7 +52,8 @@ HINT:  Go outside, touch grass, run VACUUM.
 
 ## Requirements
 
-- PostgreSQL 16, 17, 18 or 19 on Linux; the main development version is 18;
+- PostgreSQL 14 to 19 on Linux; the main development version is 18
+  (on 14, which has no `MERGE`, see [Known limitations](#known-limitations));
 - the server must preload the library (`shared_preload_libraries`), so managed
   services such as RDS or Cloud SQL are not supported;
 - server headers and PGXS: `postgresql-server-dev-NN` on Debian/Ubuntu,
@@ -71,7 +72,7 @@ docker run -d --name pga -e POSTGRES_PASSWORD=secret ghcr.io/victornagibator/pg_
 docker exec -it pga psql -U postgres
 ```
 
-Other PostgreSQL versions are tagged `pg16` to `pg19`, for example
+Other PostgreSQL versions are tagged `pg14` to `pg19`, for example
 `ghcr.io/victornagibator/pg_achievements:pg17`. To build the image from a
 checkout: `docker build -t pg_achievements .` (add
 `--build-arg PG_MAJOR=17` for another version).
@@ -373,6 +374,10 @@ Counting rules:
 - Achievement texts are stored in the encoding of `pg_achievements.database`.
   Notices in a database with another encoding show non-ASCII characters of
   custom achievements as `?`.
+- PostgreSQL 14 has no `MERGE`, so `merge_conflict` cannot be earned there.
+  It stays in `achievements.progress` and the other views, but
+  `platinum_collection` ("collect every other achievement") does not
+  require it on 14.
 - Client-side meta-commands such as `\d` are invisible; the server only sees
   the SQL they send.
 - `pg_dump` saves progress and custom achievements. Restoring into a running
@@ -403,6 +408,11 @@ needed. The regression tests also check that updating from 1.0 gives the
 same catalog as a fresh install. The TAP tests cover restarts and crashes, `kill -9` of the worker,
 50 sessions racing for one award, `pg_dump`/restore, `pg_stat_statements` in
 both preload orders, hot standby and real deadlocks.
+
+A few regression outputs differ on PostgreSQL 14 (no `MERGE`, another
+`pg_terminate_backend` warning): `test/expected/*_1.out` hold the PostgreSQL
+14 variants, and pg_regress accepts either file. When a change touches
+`01_analyze`, `05_views` or `07_achievements`, regenerate both.
 
 ## Performance
 

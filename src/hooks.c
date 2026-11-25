@@ -409,8 +409,10 @@ pga_walker(Node *node, void *context)
 			f->flags |= PF_UPSERT;
 		if (q->returningList != NIL)
 			f->flags |= PF_RETURNING;
+#if PG_VERSION_NUM >= 150000
 		if (q->commandType == CMD_MERGE)
 			f->flags |= PF_MERGE;
+#endif
 		if (q->groupingSets != NIL)
 			f->flags |= PF_GROUPING;
 		if (pga_is_cartesian(q))
@@ -891,8 +893,10 @@ pga_option_enabled(List *options, const char *name)
 			result = true;		/* bare option: EXPLAIN (ANALYZE) */
 		else if (IsA(opt->arg, Integer))
 			result = intVal(opt->arg) == 1;
+#if PG_VERSION_NUM >= 150000
 		else if (IsA(opt->arg, Boolean))
 			result = boolVal(opt->arg);
+#endif
 		else if (IsA(opt->arg, String))
 			result = parse_bool(strVal(opt->arg), &value) && value;
 		else
@@ -1083,8 +1087,13 @@ pga_is_disable_attempt(AlterSystemStmt *stmt)
 		return false;
 
 	con = (A_Const *) linitial(set->args);
+#if PG_VERSION_NUM >= 150000
 	if (con->isnull)
 		return false;
+#else
+	if (IsA(&con->val, Null))
+		return false;
+#endif
 	if (IsA(&con->val, String))
 		return parse_bool(strVal(&con->val), &value) && !value;
 	if (IsA(&con->val, Integer))

@@ -10,7 +10,11 @@
 #include "fmgr.h"
 #include "funcapi.h"
 #include "access/xact.h"
+#if PG_VERSION_NUM >= 160000
 #include "nodes/queryjumble.h"
+#else
+#include "utils/queryjumble.h"	/* EnableQueryId() lived here before 16 */
+#endif
 #include "pgstat.h"
 #include "storage/latch.h"
 #include "utils/acl.h"
@@ -33,6 +37,23 @@ const PgaCounterInfo pga_counter_info[PGA_NUM_COUNTERS] = {
 const char *const pga_tier_names[PGA_NUM_TIERS] = {
 	"bronze", "silver", "gold", "platinum"
 };
+
+/*
+ * Can this server ever bump counter c?  MERGE appeared in PostgreSQL 15,
+ * so on 14 the "merge" counter stays at zero forever.  The worker loads
+ * achievements on such counters as inactive, which keeps them out of the
+ * "collect them all" meta achievements: otherwise platinum could never be
+ * earned on 14.
+ */
+bool
+pga_counter_supported(int c)
+{
+#if PG_VERSION_NUM < 150000
+	if (c == PGA_C_MERGE)
+		return false;
+#endif
+	return c >= 0 && c < PGA_NUM_COUNTERS;
+}
 
 /* Counter index by SQL key, or -1. */
 int
@@ -218,13 +239,45 @@ pga_sql_grant(PG_FUNCTION_ARGS)
 	PG_RETURN_BOOL(pga_grant(NameStr(*role), slot));
 }
 
+/*
+ * Set up a materialized set-returning call with the expected tuple
+ * descriptor.  16 has InitMaterializedSRF() for this (15 has the same
+ * thing as SetSingleFuncCall()); before 16 we spell the boilerplate out.
+ */
+static void
+pga_init_materialized_srf(FunctionCallInfo fcinfo)
+{
+#if PG_VERSION_NUM >= 160000
+	InitMaterializedSRF(fcinfo, MAT_SRF_USE_EXPECTED_DESC);
+#else
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	MemoryContext oldcxt;
+
+	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo) ||
+		!(rsinfo->allowedModes & SFRM_Materialize) ||
+		rsinfo->expectedDesc == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("set-valued function called in context that cannot accept a set")));
+
+	/* the tuplestore must outlive this call: build it in the query context */
+	oldcxt = MemoryContextSwitchTo(rsinfo->econtext->ecxt_per_query_memory);
+	rsinfo->returnMode = SFRM_Materialize;
+	rsinfo->setDesc = CreateTupleDescCopy(rsinfo->expectedDesc);
+	rsinfo->setResult =
+		tuplestore_begin_heap((rsinfo->allowedModes & SFRM_Materialize_Random) != 0,
+							  false, work_mem);
+	MemoryContextSwitchTo(oldcxt);
+#endif
+}
+
 /* achievements._counter_keys() RETURNS SETOF text */
 Datum
 pga_sql_counter_keys(PG_FUNCTION_ARGS)
 {
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
 
-	InitMaterializedSRF(fcinfo, MAT_SRF_USE_EXPECTED_DESC);
+	pga_init_materialized_srf(fcinfo);
 	for (int i = 0; i < PGA_NUM_COUNTERS; i++)
 	{
 		Datum		values[2];
