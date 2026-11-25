@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (1.2.2)
+## 1.2.2 — 2026-11-25
 
 PostgreSQL 14 and 15 support. Install the new version, restart the server
 and run `ALTER EXTENSION pg_achievements UPDATE`.
